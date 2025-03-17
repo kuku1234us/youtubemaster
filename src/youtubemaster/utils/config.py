@@ -31,27 +31,56 @@ class Config:
     
     def _find_config_file(self):
         """Find the configuration file in common locations."""
-        # Check in current directory
-        if os.path.exists("config.yaml"):
-            return Path("config.yaml")
-            
-        # Check in the app directory
-        app_dir = Path(os.path.dirname(os.path.abspath(__file__))).parent.parent
-        config_in_app = app_dir / "config.yaml"
-        if config_in_app.exists():
-            return config_in_app
-            
-        # Check in user config directory
+        # First, determine if we're running as frozen app (PyInstaller)
+        is_frozen = getattr(sys, 'frozen', False)
+        
+        # First priority: Check user's config directory (always writable)
         user_config_dir = Path.home() / ".youtubemaster"
         if not user_config_dir.exists():
             user_config_dir.mkdir(exist_ok=True)
             
         user_config = user_config_dir / "config.yaml"
+        
+        # If user config exists, use it
         if user_config.exists():
             return user_config
             
-        # If no config file found, create default in app directory
-        return app_dir / "config.yaml"
+        # Second priority: Check in AppData/Local (Windows) or .config (Linux)
+        if sys.platform == 'win32':
+            app_config_dir = Path(os.environ.get('LOCALAPPDATA', '')) / "YouTubeMaster"
+        else:
+            app_config_dir = Path.home() / ".config" / "youtubemaster"
+            
+        if not app_config_dir.exists():
+            app_config_dir.mkdir(exist_ok=True, parents=True)
+            
+        app_config = app_config_dir / "config.yaml"
+        
+        # If App config exists, use it
+        if app_config.exists():
+            return app_config
+        
+        # Third priority for development: Check in current directory or app directory
+        config_in_cwd = Path("config.yaml")
+        if not is_frozen and config_in_cwd.exists():
+            return config_in_cwd
+            
+        app_dir = Path(os.path.dirname(os.path.abspath(__file__))).parent.parent
+        config_in_app = app_dir / "src" / "config.yaml"
+        if not is_frozen and config_in_app.exists():
+            # Load from src dir but save to user dir
+            print(f"Found config in {config_in_app}, but will save to {user_config}")
+            return config_in_app
+        
+        # If we get here, no config file was found
+        # When running as executable, default to user directory
+        if is_frozen:
+            print(f"Creating new config in {user_config}")
+            return user_config
+        else:
+            # In development, use cwd
+            print(f"Creating new config in {config_in_cwd}")
+            return config_in_cwd
     
     def _load_config(self):
         """Load the configuration from file."""
@@ -158,11 +187,31 @@ class Config:
         yaml.indent(mapping=2, sequence=4, offset=2)
         
         try:
-            # Ensure directory exists
-            self._config_path.parent.mkdir(exist_ok=True)
+            # Determine if we're running as bundled app
+            is_frozen = getattr(sys, 'frozen', False)
             
-            with open(self._config_path, 'w') as file:
+            # If we're frozen or the current path is not writable,
+            # save to user directory instead
+            save_path = self._config_path
+            
+            # Check if we can write to the directory
+            if is_frozen or not os.access(self._config_path.parent, os.W_OK):
+                # Save to user config directory instead
+                user_config_dir = Path.home() / ".youtubemaster"
+                user_config_dir.mkdir(exist_ok=True)
+                save_path = user_config_dir / "config.yaml"
+                print(f"Saving config to user directory: {save_path}")
+            
+            # Ensure directory exists
+            save_path.parent.mkdir(exist_ok=True, parents=True)
+            
+            with open(save_path, 'w') as file:
                 yaml.dump(self._config, file)
+                
+            # If we redirected the save, update config_path for next time
+            if save_path != self._config_path:
+                self._config_path = save_path
+                
         except Exception as e:
             print(f"Error saving configuration: {e}")
     

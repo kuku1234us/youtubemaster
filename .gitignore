@@ -1,0 +1,61 @@
+# Project-specific directories
+OriginalVersion/
+downloads/
+output/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.env/
+.vscode/
+
+# IDE files
+.idea/
+*.swp
+*.swo
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Logs and databases
+*.log
+*.sqlite
+*.db
+
+# OS specific files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment variables
+.env
+
+# Compiled UI files
+*.ui.py
+
+# Qt Creator files
+*.pro.user
+*.qmlproject.user
+*.pyproject.user
+
+# Application specific files
+.youtubemaster/
+.youtube-dl-cookies.txt
+*.cookies
+
+# Temporary files
+*.tmp
+*.bak
+*~

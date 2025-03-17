@@ -1,0 +1,50 @@
+app_mode: debug
+logging:
+  level: INFO
+  file: app.log
+ui:
+  font:
+    family: Calibri
+    size: 10
+  theme:
+    dark:
+      background: '#1E1E1E'
+      text: '#FFFFFF'
+      accent: '#007ACC'
+      table:
+        header: '#2D2D2D'
+        background: '#252526'
+        alternate_row: '#2D2D2D'
+        grid: '#3C3C3C'
+      search:
+        background: '#2D2D2D'
+        border: '#3C3C3C'
+        focus: '#4CAF50'
+      button:
+        background: '#3C3C3C'
+        text: '#FFFFFF'
+        hover: '#505050'
+        disabled:
+          background: '#2A2A2A'
+          text: '#808080'
+      input:
+        background: '#3C3C3C'
+        text: '#FFFFFF'
+        border: '#555555'
+      splitter: '#2D2D2D'
+      titlebar:
+        background: '#2D2D2D'
+        text: '#FFFFFF'
+        button_hover: '#3C3C3C'
+      scrollbar:
+        background: '#1E1E1E'
+        handle: '#3C3C3C'
+        border: '#2D2D2D'
+        button: '#3C3C3C'
+        arrow: '#555555'
+      border_radius:
+        button: 5px
+        input: 5px
+output_directory: Z:/AAAAA01
+api:
+  youtube_key: AIzaSyBiZIR6Fw5jSTSdwZmxyrhSRvpdC5n-Xnk

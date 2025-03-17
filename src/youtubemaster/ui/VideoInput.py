@@ -262,32 +262,59 @@ class VideoInput(QWidget):
     
     def get_format_options(self):
         """Get the selected format options."""
-        current_text = self.format_combo.currentText()
+        # Determine selected resolution
+        format_options = {}
         
-        # Default format options
-        format_options = {'format': 'bestvideo[height<=1080]+bestaudio/best[height<=1080]'}
-        
-        # Handle specific format selections
-        if 'MP4' in current_text:
-            format_options = {
-                'format': 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]',
-                'merge_output_format': 'mp4'
-            }
-        elif 'Audio Only' in current_text:
-            format_options = {
-                'format': 'bestaudio/best',
-                'format_sort': ['acodec:m4a']
-            }
+        if self.btn_1080p.isChecked():
+            resolution = 1080
+        elif self.btn_720p.isChecked():
+            resolution = 720
+        elif self.btn_480p.isChecked():
+            resolution = 480
+        else:  # Audio only
+            resolution = None
+            
+        # Build format string based on selections
+        if resolution:
+            # Video format
+            format_str = f"bestvideo[height<={resolution}]"
+            if self.btn_https.isChecked():
+                format_str += "[protocol=https]"
+            if self.btn_m4a.isChecked():
+                format_str += "[ext=mp4]"
+            
+            # Audio format
+            audio_str = "bestaudio"
+            if self.btn_https.isChecked():
+                audio_str += "[protocol=https]"
+            if self.btn_m4a.isChecked():
+                audio_str += "[ext=m4a]"
+            
+            # Fall back options
+            fallback = f"best[height<={resolution}]"
+            if self.btn_https.isChecked():
+                fallback += "[protocol=https]"
+            if self.btn_m4a.isChecked() and resolution:
+                fallback += "[ext=mp4]"
+            
+            # Complete format string
+            format_str = f"{format_str}+{audio_str}/{fallback}/best"
+            format_options["format"] = format_str
+            
+            # Force MP4 output if m4a is selected
+            if self.btn_m4a.isChecked():
+                format_options["merge_output_format"] = "mp4"
+        else:
+            # Audio only format
+            format_str = "bestaudio"
+            if self.btn_https.isChecked():
+                format_str += "[protocol=https]"
+            if self.btn_m4a.isChecked():
+                format_str += "[ext=m4a]"
+                format_options["merge_output_format"] = "m4a"
+            else:
+                format_str += "/best"
+            
+            format_options["format"] = format_str
         
         return format_options
-    
-    def populate_formats(self):
-        """Populate the format combo box."""
-        self.format_combo.clear()
-        formats = [
-            "Best Quality (MP4 if available)",
-            "MP4 Only (1080p max)",
-            "Audio Only (M4A)"
-        ]
-        for format_name in formats:
-            self.format_combo.addItem(format_name) 

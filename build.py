@@ -39,7 +39,7 @@ def build_executable():
         '--clean',
         '--noconfirm',
         # Add data files (modify as needed)
-        '--add-data', f'{os.path.join("src", "youtubemaster", "resources")}:resources',
+        '--add-data', f'{os.path.join("src", "youtubemaster", "resources")};resources',
     ])
     
     # Add hidden imports for yt-dlp
@@ -50,7 +50,10 @@ def build_executable():
     cmd.append(os.path.join('src', 'youtubemaster', 'main.py'))
     
     # Execute PyInstaller
-    subprocess.run(cmd)
+    pyinstaller_cmd = ['poetry', 'run', 'pyinstaller']
+    pyinstaller_cmd.extend(cmd[1:])  # Skip the first 'pyinstaller' element
+    
+    subprocess.run(pyinstaller_cmd)
     
     print("Build completed! Executable is in the 'dist' folder.")
 

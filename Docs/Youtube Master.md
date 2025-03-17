@@ -152,6 +152,180 @@ The VideoInput component was designed to be flexible and user-friendly. We place
 2. Create a more intuitive workflow where the input and action are closely associated
 3. Improve the visual correlation between entering a URL and adding it to the queue
 
+#### Toggle Button Format Selection System
+
+The VideoInput component features an elegant toggle button system for format selection that provides users with intuitive control over download options. Instead of using traditional dropdown menus or checkboxes, we implemented interactive toggle buttons that offer immediate visual feedback.
+
+##### Custom ToggleButton Class
+
+At the heart of this system is our custom `ToggleButton` class, which extends Qt's standard QPushButton with specialized toggle behavior:
+
+```python
+class ToggleButton(QPushButton):
+    """Custom toggle button that can be toggled on/off with clear visual state."""
+    
+    def __init__(self, text, parent=None, exclusive=False):
+        """Initialize the toggle button."""
+        super().__init__(text, parent)
+        self.setCheckable(True)
+        self._exclusive = exclusive
+        # Styling and behavior configuration...
+```
+
+Each toggle button provides clear visual feedback by changing its background color when selected, making it immediately obvious which options are active. The buttons are styled with the application's theme colors to maintain visual consistency.
+
+##### Resolution Selection Row
+
+The format selection interface is organized into two logical groups. The first row contains resolution selection buttons arranged horizontally:
+
+```
+[1080p] [720p] [480p] [Audio]
+```
+
+These buttons form a mutually exclusive group—only one can be selected at any time. When a user clicks on one of these resolution buttons:
+
+1. The clicked button becomes selected (highlighted)
+2. Any previously selected resolution button is automatically deselected
+3. The format string is immediately updated based on the new selection
+
+We ensure that one resolution is always selected (default is 720p) to prevent invalid format states. This is handled by the `on_resolution_clicked()` method:
+
+```python
+def on_resolution_clicked(self):
+    """Handle resolution button clicks - ensure one is always selected."""
+    sender = self.sender()
+    
+    # Ensure one resolution is always selected
+    if not sender.isChecked():
+        sender.setChecked(True)
+        return
+    
+    # Uncheck all other resolution buttons
+    for button in self.resolution_group.buttons():
+        if button != sender:
+            button.setChecked(False)
+    
+    # If audio is selected, turn off m4a (user can turn it back on)
+    if sender == self.btn_audio:
+        self.btn_m4a.setChecked(False)
+    
+    self.update_format()
+```
+
+##### Format Option Toggles
+
+The second group contains independent format option toggles:
+
+```
+[HTTPS] [M4A]
+```
+
+Unlike the resolution buttons, these toggles operate independently and can be toggled on/off regardless of other selections:
+
+- **HTTPS**: When enabled, restricts downloads to secure HTTPS protocol sources only
+- **M4A**: When enabled, prioritizes MP4 video and M4A audio formats
+
+An interesting interaction occurs when the user selects "Audio" mode—the M4A toggle is automatically turned off (though users can re-enable it if desired). This intentional design choice reflects the common preference for different audio formats when downloading audio-only content.
+
+##### Format String Generation
+
+The state of these toggle buttons is translated into yt-dlp compatible format strings through the `get_format_options()` method:
+
+```python
+def get_format_options(self):
+    """Get the selected format options."""
+    # Determine selected resolution
+    format_options = {}
+    
+    if self.btn_1080p.isChecked():
+        resolution = 1080
+    elif self.btn_720p.isChecked():
+        resolution = 720
+    elif self.btn_480p.isChecked():
+        resolution = 480
+    else:  # Audio only
+        resolution = None
+        
+    # Build format string based on selections
+    if resolution:
+        # Video format string construction
+        format_str = f"bestvideo[height<={resolution}]"
+        if self.btn_https.isChecked():
+            format_str += "[protocol=https]"
+        # Additional format options...
+    else:
+        # Audio only format string construction
+        # ...
+    
+    return format_options
+```
+
+This method generates complex format strings like:
+```
+bestvideo[height<=1080][protocol=https]+bestaudio[protocol=https]/best[height<=1080][protocol=https]
+```
+
+##### Benefits of Toggle Button Approach
+
+The toggle button approach offers several advantages over traditional dropdown menus:
+
+1. **Immediate Visual Feedback**: Users can instantly see which options are selected
+2. **Efficient Space Usage**: The compact horizontal layout preserves vertical space
+3. **Fewer Clicks**: Users can change multiple options with single clicks rather than opening dropdowns
+4. **Intuitive Interface**: The visual toggle metaphor is familiar and easily understood
+
+The format selection system demonstrates how thoughtful UI design can make complex technical options accessible to users of varying technical expertise.
+
+##### URL Cleansing and Normalization
+
+YouTube URLs often contain various tracking parameters and additional information that aren't necessary for the download process. For example:
+```
+https://www.youtube.com/watch?v=V-vPd0ZdNno&t=1s&list=PLjCQ5M7DvVIdqpQWkA9FdUXKzz0woEn0z
+```
+
+The VideoInput component includes intelligent URL processing to extract and preserve only the essential video ID while removing unnecessary parameters:
+
+```python
+def get_url(self):
+    """Get the entered URL and clean it from unnecessary parameters."""
+    import urllib.parse
+    
+    url = self.url_input.text().strip()
+    
+    # If it's a video ID, convert to full URL
+    if url and not url.startswith(('http://', 'https://', 'www.')):
+        # Assume it's a video ID
+        url = "https://www.youtube.com/watch?v=" + url
+        return url
+    
+    # For YouTube URLs, cleanse parameters
+    if 'youtube.com' in url or 'youtu.be' in url:
+        try:
+            # Parse the URL
+            parsed_url = urllib.parse.urlparse(url)
+            
+            # Get the query parameters
+            query_params = urllib.parse.parse_qs(parsed_url.query)
+            
+            # Keep only the video ID parameter
+            if 'v' in query_params:
+                video_id = query_params['v'][0]
+                clean_url = f"https://www.youtube.com/watch?v={video_id}"
+                return clean_url
+        except Exception:
+            # In case of any error, return the original URL
+            pass
+    
+    return url
+```
+
+This cleansing process handles several cases:
+1. **Direct video IDs**: If users enter just the video ID (e.g., "V-vPd0ZdNno"), it's converted to a full YouTube URL
+2. **Standard YouTube URLs**: Parameters like timestamps (`t=1s`), playlist info (`list=...`), and tracking data are removed
+3. **Short youtu.be URLs**: Short-form URLs like "https://youtu.be/V-vPd0ZdNno?t=30" are normalized to standard format
+
+The cleansing ensures that yt-dlp receives a consistent URL format, preventing potential issues with parameter handling and ensuring a more predictable download experience for users. It also makes logs and error messages cleaner and more consistent.
+
 ### YoutubeProgress
 
 The `YoutubeProgress` component is responsible for displaying download progress. It handles tasks such as:

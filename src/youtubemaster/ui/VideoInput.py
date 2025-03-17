@@ -9,7 +9,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QColor
 
-from youtubemaster.utils.config import config
+from youtubemaster.models.YoutubeModel import YoutubeModel
+from youtubemaster.models.Yt_DlpModel import YtDlpModel
+from youtubemaster.models.ThemeManager import ThemeManager
 
 class ToggleButton(QPushButton):
     """Custom toggle button that can be toggled on/off with clear visual state."""
@@ -21,38 +23,8 @@ class ToggleButton(QPushButton):
         self._exclusive = exclusive
         self.setMinimumWidth(50)  # Reduced from 70 to 50
         
-        # Get accent color from config for the on state
-        accent_color = config.get('ui.theme.dark.accent', '#007ACC')
-        background_color = config.get('ui.theme.dark.button.background', '#3C3C3C')
-        hover_color = config.get('ui.theme.dark.button.hover', '#505050')
-        text_color = config.get('ui.theme.dark.button.text', '#FFFFFF')
-        
         # Apply stylesheet for toggle states with smaller dimensions
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {background_color};
-                color: {text_color};
-                border: 1px solid #555555;
-                padding: 3px;  /* Reduced from 5px to 3px */
-                border-radius: 4px;  /* Reduced from 5px to 4px */
-                font-size: 10px;  /* Add a smaller font size */
-            }}
-            
-            QPushButton:hover {{
-                background-color: {hover_color};
-            }}
-            
-            QPushButton:checked {{
-                background-color: {accent_color};
-                border: 1px solid {accent_color};
-                color: white;
-            }}
-            
-            QPushButton:checked:hover {{
-                background-color: {accent_color};
-                border: 1px solid white;
-            }}
-        """)
+        self.setStyleSheet(ThemeManager.get_toggle_button_style())
         
         # Set a fixed height to make buttons shorter
         self.setFixedHeight(22)  # This will make them shorter
@@ -183,57 +155,9 @@ class VideoInput(QWidget):
         self.update_format()
     
     def update_format(self):
-        """Update the format selection based on button states."""
-        # Determine selected resolution
-        resolution = None
-        if self.btn_1080p.isChecked():
-            resolution = 1080
-        elif self.btn_720p.isChecked():
-            resolution = 720
-        elif self.btn_480p.isChecked():
-            resolution = 480
-        
-        # Build format string based on selections
-        format_dict = {}
-        if resolution:
-            # Video format
-            format_str = f"bestvideo[height={resolution}]"
-            if self.btn_https.isChecked():
-                format_str += "[protocol=https]"
-            if self.btn_m4a.isChecked():
-                format_str += "[ext=mp4]"
-            
-            # Audio format
-            audio_str = "bestaudio"
-            if self.btn_https.isChecked():
-                audio_str += "[protocol=https]"
-            if self.btn_m4a.isChecked():
-                audio_str += "[ext=m4a]"
-            
-            # Fall back options
-            fallback = f"best[height={resolution}]"
-            if self.btn_https.isChecked():
-                fallback += "[protocol=https]"
-            if self.btn_m4a.isChecked() and resolution:
-                fallback += "[ext=mp4]"
-            
-            # Complete format string
-            format_str = f"{format_str}+{audio_str}/{fallback}/best"
-            format_dict["format"] = format_str
-            
-            # Force MP4 output if m4a is selected
-            if self.btn_m4a.isChecked():
-                format_dict["merge_output_format"] = "mp4"
-        else:
-            # Audio only format
-            format_str = "bestaudio"
-            if self.btn_https.isChecked():
-                format_str += "[protocol=https]"
-            if self.btn_m4a.isChecked():
-                format_str += "[ext=m4a]"
-                format_dict["merge_output_format"] = "m4a"
-            
-            format_dict["format"] = format_str
+        """Update the format selection based on button states and emit signal."""
+        # Get format options from YtDlpModel
+        format_dict = self.get_format_options()
         
         # Emit the format changed signal
         self.format_changed.emit(format_dict)
@@ -247,13 +171,11 @@ class VideoInput(QWidget):
         self.add_clicked.emit()
     
     def get_url(self):
-        """Get the entered URL."""
+        """Get the entered URL and clean it from unnecessary parameters."""
         url = self.url_input.text().strip()
-        # If it's a video ID, convert to full URL
-        if url and not url.startswith(('http://', 'https://', 'www.')):
-            # Assume it's a video ID
-            url = "https://www.youtube.com/watch?v=" + url
-        return url
+        
+        # Use YoutubeModel to clean the URL
+        return YoutubeModel.clean_url(url)
     
     def set_url(self, url):
         """Set the URL input text."""
@@ -261,60 +183,20 @@ class VideoInput(QWidget):
         self.url_input.selectAll()
     
     def get_format_options(self):
-        """Get the selected format options."""
+        """Get the selected format options using YtDlpModel."""
         # Determine selected resolution
-        format_options = {}
-        
+        resolution = None
         if self.btn_1080p.isChecked():
             resolution = 1080
         elif self.btn_720p.isChecked():
             resolution = 720
         elif self.btn_480p.isChecked():
             resolution = 480
-        else:  # Audio only
-            resolution = None
-            
-        # Build format string based on selections
-        if resolution:
-            # Video format
-            format_str = f"bestvideo[height<={resolution}]"
-            if self.btn_https.isChecked():
-                format_str += "[protocol=https]"
-            if self.btn_m4a.isChecked():
-                format_str += "[ext=mp4]"
-            
-            # Audio format
-            audio_str = "bestaudio"
-            if self.btn_https.isChecked():
-                audio_str += "[protocol=https]"
-            if self.btn_m4a.isChecked():
-                audio_str += "[ext=m4a]"
-            
-            # Fall back options
-            fallback = f"best[height<={resolution}]"
-            if self.btn_https.isChecked():
-                fallback += "[protocol=https]"
-            if self.btn_m4a.isChecked() and resolution:
-                fallback += "[ext=mp4]"
-            
-            # Complete format string
-            format_str = f"{format_str}+{audio_str}/{fallback}/best"
-            format_options["format"] = format_str
-            
-            # Force MP4 output if m4a is selected
-            if self.btn_m4a.isChecked():
-                format_options["merge_output_format"] = "mp4"
-        else:
-            # Audio only format
-            format_str = "bestaudio"
-            if self.btn_https.isChecked():
-                format_str += "[protocol=https]"
-            if self.btn_m4a.isChecked():
-                format_str += "[ext=m4a]"
-                format_options["merge_output_format"] = "m4a"
-            else:
-                format_str += "/best"
-            
-            format_options["format"] = format_str
+        # Audio only if none of the above are checked
         
-        return format_options
+        # Use YtDlpModel to generate the format options
+        return YtDlpModel.generate_format_string(
+            resolution=resolution,
+            use_https=self.btn_https.isChecked(),
+            use_m4a=self.btn_m4a.isChecked()
+        )

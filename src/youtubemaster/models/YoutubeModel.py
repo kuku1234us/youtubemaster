@@ -162,3 +162,24 @@ class YoutubeModel:
             pixmap = YoutubeModel.get_thumbnail(url, 'medium')
         
         return title, pixmap 
+
+    @staticmethod
+    def clean_url(url):
+        """
+        Clean a YouTube URL to remove unnecessary parameters.
+        Returns a standardized YouTube URL with only the video ID.
+        """
+        # If it's a video ID, convert to full URL
+        if url and not url.startswith(('http://', 'https://', 'www.')):
+            # Assume it's a video ID
+            return f"https://www.youtube.com/watch?v={url}"
+        
+        # Extract video ID using the existing method
+        video_id = YoutubeModel.extract_video_id(url)
+        
+        # If we found a valid video ID, return standard format
+        if video_id:
+            return f"https://www.youtube.com/watch?v={video_id}"
+        
+        # If we couldn't extract a video ID, return the original URL
+        return url 

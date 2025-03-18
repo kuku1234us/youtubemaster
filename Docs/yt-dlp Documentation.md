@@ -1,3 +1,9 @@
+---
+parent: "[[Youtube Master]]"
+banner: https://www.unixmen.com/wp-content/uploads/2024/11/yt_dlp-1024x549.png
+banner_y: 0.134
+---
+
 <!-- MANPAGE: BEGIN EXCLUDED SECTION -->
 <div align="center">
 

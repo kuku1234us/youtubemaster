@@ -12,6 +12,7 @@ from PyQt6.QtGui import QColor
 from youtubemaster.models.YoutubeModel import YoutubeModel
 from youtubemaster.models.Yt_DlpModel import YtDlpModel
 from youtubemaster.models.ThemeManager import ThemeManager
+from youtubemaster.models.SiteModel import SiteModel
 
 class ToggleButton(QPushButton):
     """Custom toggle button that can be toggled on/off with clear visual state."""
@@ -62,11 +63,11 @@ class VideoInput(QWidget):
         url_row = QHBoxLayout()
         
         # URL input
-        url_label = QLabel("YouTube URL:")
+        url_label = QLabel("Video URL:")
         url_row.addWidget(url_label)
         
         self.url_input = QLineEdit()
-        self.url_input.setPlaceholderText("Enter YouTube URL or Video ID...")
+        self.url_input.setPlaceholderText("Enter YouTube or Bilibili URL or Video ID...")
         self.url_input.returnPressed.connect(self.on_enter_pressed)
         url_row.addWidget(self.url_input)
         
@@ -174,8 +175,8 @@ class VideoInput(QWidget):
         """Get the entered URL and clean it from unnecessary parameters."""
         url = self.url_input.text().strip()
         
-        # Use YoutubeModel to clean the URL
-        return YoutubeModel.clean_url(url)
+        # Use SiteModel to clean the URL based on detected platform
+        return SiteModel.get_clean_url(url)
     
     def set_url(self, url):
         """Set the URL input text."""

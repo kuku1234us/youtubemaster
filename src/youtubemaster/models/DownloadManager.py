@@ -12,7 +12,7 @@ from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt
 
 from youtubemaster.utils.logger import Logger
-from youtubemaster.models.YoutubeModel import YoutubeModel
+from youtubemaster.models.SiteModel import SiteModel
 
 class DownloadThread(QThread):
     """Thread for processing a single download."""
@@ -215,7 +215,7 @@ class DownloadManager(QObject):
         finally:
             self._mutex.unlock()
         
-        # Immediately fetch basic metadata using YoutubeModel (faster than yt-dlp)
+        # Immediately fetch basic metadata using SiteModel (faster than yt-dlp)
         self._fetch_quick_metadata(url)
         
         # Emit signal AFTER releasing the mutex
@@ -234,19 +234,19 @@ class DownloadManager(QObject):
     
     def _fetch_quick_metadata(self, url):
         """Quickly fetch basic metadata without waiting for yt-dlp."""
-        # Extract video ID and get thumbnail
-        video_id = YoutubeModel.extract_video_id(url)
+        # Get video ID and metadata using SiteModel facade
+        video_id = SiteModel.extract_video_id(url)
+        
         if video_id:
-            # Try to get title and thumbnail together from YouTube API
-            title, pixmap = YoutubeModel.get_video_metadata(url)
+            # Try to get title and thumbnail using SiteModel
+            title, pixmap = SiteModel.get_video_metadata(url)
             
             if not title:
-                title = f"Loading: {video_id}"
+                # Use a generic title with the platform detected
+                site = SiteModel.detect_site(url)
+                title = f"Loading: {site} video"
             
             if pixmap:
-                # Update the thumbnail scaling to fill the frame properly
-                from PyQt6.QtCore import Qt  # Need to import Qt
-                
                 # Scale the pixmap before storing it
                 scaled_pixmap = pixmap.scaled(
                     160, 90,
@@ -540,6 +540,24 @@ class DownloadManager(QObject):
                 try:
                     print(f"DEBUG: MetadataThread started for URL: {self.url}")
                     
+                    # First check if we can get metadata directly via SiteModel
+                    site = SiteModel.detect_site(self.url)
+                    
+                    if site != SiteModel.SITE_UNKNOWN:
+                        # Get metadata directly from the appropriate platform model
+                        self.log.emit(f"Fetching {site} metadata for: {self.url}")
+                        title, pixmap = SiteModel.get_video_metadata(self.url)
+                        
+                        if title and pixmap:
+                            print(f"DEBUG: Got {site} metadata: {title}")
+                            self.finished.emit(self.url, title, pixmap)
+                            return
+                        elif title:
+                            # We have title but no thumbnail, continue with yt-dlp to get thumbnail
+                            print(f"DEBUG: Got {site} title only: {title}")
+                            # Continue to yt-dlp flow but with title already known
+                    
+                    # For cases where direct API fails or for unsupported sites, use yt-dlp
                     from yt_dlp import YoutubeDL
                     
                     # Configure yt-dlp options

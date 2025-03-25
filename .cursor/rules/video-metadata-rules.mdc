@@ -1,0 +1,9 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# Source of Truth
+
+- The video metadata (thumbnail and video title) must be retrieved from the respective platform's (youtube's or bilibili's) API and not from yt-dlp.

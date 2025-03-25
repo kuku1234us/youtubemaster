@@ -32,6 +32,19 @@ class SiteModel:
         if not url:
             return SiteModel.SITE_UNKNOWN
             
+        # Handle protocol URLs from Chrome extension
+        if url.startswith('youtubemaster://'):
+            # Extract the actual URL from the protocol URL
+            protocol_path = url.replace('youtubemaster://', '')
+            
+            # Check if it's the format with format type
+            if '/' in protocol_path and protocol_path.split('/', 1)[0] in ['video', 'audio']:
+                _, protocol_url = protocol_path.split('/', 1)
+                url = protocol_url  # Use the clean URL for detection
+            else:
+                # Legacy format - just the URL after the protocol
+                url = protocol_path
+        
         # Parse the URL
         try:
             parsed_url = urlparse(url)
@@ -94,6 +107,19 @@ class SiteModel:
         Returns:
             str: Normalized URL for the detected site
         """
+        # Handle protocol URLs from Chrome extension
+        if url.startswith('youtubemaster://'):
+            # Extract the actual URL from the protocol URL
+            protocol_path = url.replace('youtubemaster://', '')
+            
+            # Check if it's the format with format type
+            if '/' in protocol_path and protocol_path.split('/', 1)[0] in ['video', 'audio']:
+                _, protocol_url = protocol_path.split('/', 1)
+                url = protocol_url  # Use the clean URL for normalization
+            else:
+                # Legacy format - just the URL after the protocol
+                url = protocol_path
+        
         site = SiteModel.detect_site(url)
         
         if site == SiteModel.SITE_YOUTUBE:

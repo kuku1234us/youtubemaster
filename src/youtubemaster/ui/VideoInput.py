@@ -13,6 +13,7 @@ from youtubemaster.models.YoutubeModel import YoutubeModel
 from youtubemaster.models.Yt_DlpModel import YtDlpModel
 from youtubemaster.models.ThemeManager import ThemeManager
 from youtubemaster.models.SiteModel import SiteModel
+from youtubemaster.utils.config import config
 
 class ToggleButton(QPushButton):
     """Custom toggle button that can be toggled on/off with clear visual state."""
@@ -121,6 +122,57 @@ class VideoInput(QWidget):
         self.btn_m4a = ToggleButton("M4A")
         self.btn_m4a.setChecked(True)  # Default is on
         format_layout.addWidget(self.btn_m4a)
+
+        # Replace subtitle label and input with toggle button
+        self.btn_subtitles = ToggleButton("Subtitles")
+        self.btn_subtitles.setChecked(config.get('subtitles.enabled', True))  # Default is on
+        self.btn_subtitles.setToolTip("Enable/disable subtitle download")
+        self.btn_subtitles.clicked.connect(self.on_subtitles_toggled)
+        format_layout.addWidget(self.btn_subtitles)
+        
+        # Add language selection combo box
+        self.subtitle_lang_combo = QComboBox()
+        self.subtitle_lang_combo.setFixedWidth(120)  # Increased from 70 to 120 pixels
+        self.subtitle_lang_combo.setEditable(True)  # Allow custom language codes
+        self.subtitle_lang_combo.setToolTip("Select subtitle language (e.g., 'en' for English, 'zh' for Chinese)")
+        
+        # Make the dropdown menu wider
+        self.subtitle_lang_combo.view().setMinimumWidth(200)  # Make dropdown wider than the combo box
+        
+        # Add common language options
+        language_options = [
+            ("en", "English"),
+            ("zh", "中文"),
+            ("ja", "日本語"),
+            ("es", "Español"),
+            ("fr", "Français"),
+            ("de", "Deutsch"),
+            ("ko", "한국어"),
+            ("ru", "Русский"),
+            ("pt", "Português"),
+            ("ar", "العربية"),
+            ("hi", "हिन्दी"),
+            ("all", "All Languages")
+        ]
+        
+        # Populate the combo box with native language names but store language codes
+        for code, name in language_options:
+            # Store the name as display text and code as hidden data
+            self.subtitle_lang_combo.addItem(name, code)
+        
+        # Set current value from config
+        current_lang = config.get('subtitles.language', 'en')
+        index = self.subtitle_lang_combo.findData(current_lang)
+        if index >= 0:
+            self.subtitle_lang_combo.setCurrentIndex(index)
+        else:
+            # If not found in predefined list, add it as custom option
+            self.subtitle_lang_combo.addItem(current_lang, current_lang)
+            self.subtitle_lang_combo.setCurrentText(current_lang)
+        
+        # Connect signal to save changes
+        self.subtitle_lang_combo.currentTextChanged.connect(self.on_subtitle_lang_changed)
+        format_layout.addWidget(self.subtitle_lang_combo)
         
         # Add stretch to push everything to the left
         format_layout.addStretch()
@@ -151,7 +203,11 @@ class VideoInput(QWidget):
         
         # If audio is selected, turn off m4a (user can turn it back on)
         if sender == self.btn_audio:
+            print("DEBUG: Audio button selected, turning off M4A by default")
             self.btn_m4a.setChecked(False)
+        
+        # Debug log button states
+        print(f"DEBUG: Button states - 1080p: {self.btn_1080p.isChecked()}, 720p: {self.btn_720p.isChecked()}, 480p: {self.btn_480p.isChecked()}, Audio: {self.btn_audio.isChecked()}")
         
         self.update_format()
     
@@ -193,11 +249,87 @@ class VideoInput(QWidget):
             resolution = 720
         elif self.btn_480p.isChecked():
             resolution = 480
-        # Audio only if none of the above are checked
+        elif self.btn_audio.isChecked():
+            resolution = None  # Audio only
+        else:
+            print("DEBUG: No resolution button is checked, defaulting to audio only")
+            resolution = None
+        
+        # Get subtitles setting
+        subtitle_enabled = self.btn_subtitles.isChecked()
+        
+        # Get the selected language code
+        subtitle_lang = None
+        if subtitle_enabled:
+            # Get the language code from the combobox's data rather than text
+            index = self.subtitle_lang_combo.currentIndex()
+            if index >= 0:
+                subtitle_lang = self.subtitle_lang_combo.itemData(index)
+                
+                # Special handling for Chinese to include simplified, traditional, and Hong Kong variants
+                if subtitle_lang == 'zh':
+                    subtitle_lang = ['zh-CN', 'zh-TW', 'zh-HK']
+                    print(f"DEBUG: Selected Chinese subtitles, downloading variants: {subtitle_lang}")
+            else:
+                # Fallback to text if it's a custom entry
+                subtitle_lang = self.subtitle_lang_combo.currentText().strip()
+        
+        # Log the options being used
+        print(f"DEBUG: Generating format options with resolution={resolution}, https={self.btn_https.isChecked()}, m4a={self.btn_m4a.isChecked()}, subtitle_lang={subtitle_lang}")
         
         # Use YtDlpModel to generate the format options
-        return YtDlpModel.generate_format_string(
+        options = YtDlpModel.generate_format_string(
             resolution=resolution,
             use_https=self.btn_https.isChecked(),
-            use_m4a=self.btn_m4a.isChecked()
+            use_m4a=self.btn_m4a.isChecked(),
+            subtitle_lang=subtitle_lang
         )
+        
+        # Log the generated format options
+        print(f"DEBUG: Generated format options: {options}")
+        
+        return options
+
+    def set_format_audio_only(self):
+        """Set format selection to audio only"""
+        # Uncheck all resolution buttons
+        self.btn_1080p.setChecked(False)
+        self.btn_720p.setChecked(False)
+        self.btn_480p.setChecked(False)
+        
+        # Check audio button
+        self.btn_audio.setChecked(True)
+        
+        # Update format string
+        self.update_format()
+
+    def set_format_video_720p(self):
+        """Set format selection to 720p video"""
+        # Uncheck all other resolution buttons
+        self.btn_1080p.setChecked(False)
+        self.btn_480p.setChecked(False)
+        self.btn_audio.setChecked(False)
+        
+        # Check 720p button
+        self.btn_720p.setChecked(True)
+        
+        # Update format string
+        self.update_format()
+
+    def on_subtitle_lang_changed(self, text):
+        """Handle subtitle language changes and save to config."""
+        # Get the language code from the data associated with the current selection
+        index = self.subtitle_lang_combo.currentIndex()
+        if index >= 0:
+            code = self.subtitle_lang_combo.itemData(index)
+        else:
+            # For custom text entries, use the text as the code
+            code = text.strip()
+        
+        config.set('subtitles.language', code)
+        self.update_format()
+
+    def on_subtitles_toggled(self):
+        """Handle subtitles toggle and save to config."""
+        config.set('subtitles.enabled', self.btn_subtitles.isChecked())
+        self.update_format()

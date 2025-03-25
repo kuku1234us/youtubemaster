@@ -74,43 +74,48 @@ class BilibiliModel:
         Returns:
             tuple: (title, pixmap) or ("Unknown Video", None) if not found
         """
-        bv_id = BilibiliModel.extract_video_id(url)
-        if not bv_id:
+        video_id = BilibiliModel.extract_video_id(url)
+        if not video_id:
             return "Unknown Video", None
         
-        # Bilibili API URL for video info
-        api_url = f"https://api.bilibili.com/x/web-interface/view?bvid={bv_id}"
+        title = None
+        pixmap = None
         
         try:
-            response = requests.get(api_url, headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            })
+            # Build API URL for Bilibili
+            api_url = f"https://api.bilibili.com/x/web-interface/view?bvid={video_id}"
             
-            if response.status_code == 200:
-                data = response.json()
+            # Set up user agent header to mimic browser
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Referer': 'https://www.bilibili.com'
+            }
+            
+            # Make API request with timeout
+            response = requests.get(api_url, headers=headers, timeout=15.0)
+            data = response.json()
+            
+            # Check if the API call was successful
+            if data['code'] == 0 and 'data' in data:
+                # Extract title
+                title = data['data'].get('title', 'Unknown Bilibili Video')
                 
-                # Check if the API returned successfully
-                if data.get('code') == 0 and 'data' in data:
-                    video_data = data['data']
-                    title = video_data.get('title', f"Bilibili: {bv_id}")
-                    
-                    # Get thumbnail URL
-                    thumbnail_url = video_data.get('pic')
-                    
-                    # Download the thumbnail
-                    if thumbnail_url:
-                        img_response = requests.get(thumbnail_url)
-                        if img_response.status_code == 200:
-                            pixmap = QPixmap()
-                            pixmap.loadFromData(img_response.content)
-                            return title, pixmap
-                    
-                    return title, None
+                # Extract thumbnail URL
+                thumbnail_url = data['data'].get('pic')
+                
+                if thumbnail_url:
+                    # Download thumbnail with timeout
+                    img_response = requests.get(thumbnail_url, timeout=15.0)
+                    if img_response.status_code == 200:
+                        pixmap = QPixmap()
+                        pixmap.loadFromData(img_response.content)
         
         except Exception as e:
             print(f"Error fetching Bilibili metadata: {e}")
+            # If we failed to get metadata, just return the video ID as a title
+            title = f"Bilibili Video: {video_id}"
         
-        return f"Bilibili: {bv_id}", None
+        return title, pixmap
     
     @staticmethod
     def get_thumbnail(url, quality='default'):

@@ -244,11 +244,45 @@ class DownloadThread(QThread):
                 'no_warnings': False,
                 'no_color': True,
                 'no_mtime': True,  # Don't use the media timestamp
+                # Add more robust error handling
+                'ignoreerrors': False,  # Don't ignore errors...
+                'abort_on_unavailable_fragment': False,  # ...but don't abort on unavailable fragments
+                'skip_unavailable_fragments': True,  # Skip unavailable fragments
+                'retries': 10,  # Increase retry attempts
+                'fragment_retries': 10,  # Retry fragments up to 10 times
+                'file_access_retries': 5,  # Retry file access operations
             }
+            
+            # Add extractor-specific arguments for advanced YouTube handling
+            # This is important to fix the PhantomJS warning and improve format extraction
+            ydl_opts['extractor_args'] = format_options.get('extractor_args', {})
             
             # Add format_sort only if it exists in format_options
             if 'format_sort' in format_options:
                 ydl_opts['format_sort'] = format_options['format_sort']
+            
+            # If merge_output_format is set, add it to ydl_opts
+            if 'merge_output_format' in format_options:
+                ydl_opts['merge_output_format'] = format_options['merge_output_format']
+            
+            # Add subtitle options if present in format_options
+            if 'writesubtitles' in format_options:
+                ydl_opts['writesubtitles'] = format_options['writesubtitles']
+            
+            if 'writeautomaticsub' in format_options:
+                ydl_opts['writeautomaticsub'] = format_options['writeautomaticsub']
+            
+            if 'subtitleslangs' in format_options:
+                ydl_opts['subtitleslangs'] = format_options['subtitleslangs']
+            
+            if 'subtitlesformat' in format_options:
+                ydl_opts['subtitlesformat'] = format_options['subtitlesformat']
+            
+            if 'embedsubtitles' in format_options:
+                ydl_opts['embedsubtitles'] = format_options['embedsubtitles']
+            
+            if 'postprocessors' in format_options:
+                ydl_opts['postprocessors'] = format_options['postprocessors']
             
             # First extract video info
             with YoutubeDL(ydl_opts) as ydl:
@@ -499,6 +533,8 @@ class MainWindow(QMainWindow):
         print(f"DEBUG: Got URL: {url}")  # Debug log
         
         format_id = self.video_input.get_format_options()
+        print(f"DEBUG: Got format_options from VideoInput: {format_id}")  # Debug the format options
+        
         output_dir = self.output_dir_input.text()
         
         if not os.path.isdir(output_dir):
@@ -595,4 +631,73 @@ class MainWindow(QMainWindow):
         # Auto-scroll to bottom
         cursor = self.log_output.textCursor()
         cursor.movePosition(cursor.MoveOperation.End)
-        self.log_output.setTextCursor(cursor) 
+        self.log_output.setTextCursor(cursor)
+    
+    def auto_add_download(self, url, format_type="video"):
+        """
+        Automatically add a URL to the download queue.
+        Used when the application is launched with a URL argument.
+        
+        Args:
+            url (str): The video URL to download
+            format_type (str): The format type ("video" or "audio")
+        """
+        if not url:
+            return False
+        
+        # Handle protocol URLs from Chrome extension
+        if url.startswith('youtubemaster://'):
+            # Extract the actual YouTube URL from the protocol URL
+            protocol_path = url.replace('youtubemaster://', '')
+            
+            # Check if it's the format with format type
+            if '/' in protocol_path and protocol_path.split('/', 1)[0] in ['video', 'audio']:
+                _, protocol_url = protocol_path.split('/', 1)
+                url = protocol_url  # Use the clean YouTube URL
+            else:
+                # Legacy format - just the YouTube URL after the protocol
+                url = protocol_path
+            
+            self.log_output.append(f"Processed protocol URL: {url}")
+        
+        # Set the URL in the input field (this will show the proper title in UI)
+        self.video_input.set_url(url)
+        
+        print(f"DEBUG: auto_add_download - setting format type: {format_type}")
+        
+        # First set the appropriate format in the UI - this ensures buttons are in correct state
+        if format_type == "audio":
+            # Set format for audio only
+            self.video_input.set_format_audio_only()
+        else:  # default to video
+            # Set format for 720p video (default)
+            self.video_input.set_format_video_720p()
+        
+        # Get the format options AFTER setting the format in the UI
+        format_options = self.video_input.get_format_options()
+        print(f"DEBUG: auto_add_download - got format options: {format_options}")
+        
+        output_dir = self.output_dir_input.text()
+        
+        # Validate output directory
+        if not os.path.isdir(output_dir):
+            self.log_output.append(f"Error: Invalid output directory '{output_dir}'")
+            return False
+        
+        # Add to download queue
+        added = self.download_manager.add_download(
+            url, 
+            format_options=format_options, 
+            output_dir=output_dir
+        )
+        
+        if added:
+            # Clear URL field for next entry
+            self.video_input.set_url("")
+            self.statusBar.showMessage(f"Added to download queue: {url}")
+            self.log_output.append(f"Auto-added URL to download queue: {url} ({format_type} format)")
+            return True
+        else:
+            self.statusBar.showMessage("URL already in queue")
+            self.log_output.append(f"URL already in queue: {url}")
+            return False 

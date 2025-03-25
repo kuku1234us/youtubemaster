@@ -10,7 +10,7 @@ class YtDlpModel:
     """
 
     @staticmethod
-    def generate_format_string(resolution=None, use_https=True, use_m4a=True):
+    def generate_format_string(resolution=None, use_https=True, use_m4a=True, subtitle_lang=None):
         """
         Generate the yt-dlp format string based on the provided parameters.
         
@@ -18,13 +18,46 @@ class YtDlpModel:
             resolution (int, optional): Video resolution (1080, 720, 480, None for audio only)
             use_https (bool): Whether to prefer HTTPS protocol
             use_m4a (bool): Whether to prefer M4A/MP4 formats
+            subtitle_lang (str, optional): Language code for subtitles (e.g., 'en', 'es', etc.) or None to disable
             
         Returns:
             dict: Dictionary with format options for yt-dlp
         """
         format_options = {}
         
+        # Add modern browser-based extraction method to fix PhantomJS warnings
+        format_options['extractor_args'] = {
+            'youtube': {
+                # No specific player client requirement
+            }
+        }
+        
+        print(f"DEBUG: YtDlpModel.generate_format_string called with: resolution={resolution}, use_https={use_https}, use_m4a={use_m4a}, subtitle_lang={subtitle_lang}")
+        
+        # Add more flexible subtitle format handling
+        if subtitle_lang:
+            format_options['writesubtitles'] = True
+            format_options['writeautomaticsub'] = True  # Include auto-generated subtitles
+            
+            # Set the language(s) to download
+            if isinstance(subtitle_lang, list):
+                # If subtitle_lang is a list (e.g., ['zh-CN', 'zh-TW'] for Chinese)
+                format_options['subtitleslangs'] = subtitle_lang
+                print(f"DEBUG: Multiple subtitle languages requested: {subtitle_lang}")
+            elif subtitle_lang.lower() == 'all':
+                format_options['subtitleslangs'] = ['all']
+            else:
+                format_options['subtitleslangs'] = [subtitle_lang]
+                
+            # Accept multiple subtitle formats in order of preference
+            format_options['subtitlesformat'] = 'srt/vtt/ttml/best'
+            
+            # Embed subtitles for video downloads
+            if resolution:
+                format_options['embedsubtitles'] = True
+        
         if resolution:
+            print(f"DEBUG: Generating video format with resolution: {resolution}")
             # Video format
             format_str = f"bestvideo[height<={resolution}]"
             if use_https:
@@ -53,7 +86,17 @@ class YtDlpModel:
             # Force MP4 output if m4a is selected
             if use_m4a:
                 format_options["merge_output_format"] = "mp4"
+                
+            # Add subtitle embedding postprocessor if we're downloading subtitles
+            if subtitle_lang:
+                format_options["postprocessors"] = [
+                    {"key": "FFmpegEmbedSubtitle"}
+                ]
+                
+            print(f"DEBUG: Video format string: {format_str}")
+            
         else:
+            print(f"DEBUG: Generating audio-only format")
             # Audio only format
             format_str = "bestaudio"
             if use_https:
@@ -65,7 +108,10 @@ class YtDlpModel:
                 format_str += "/best"
             
             format_options["format"] = format_str
+                
+            print(f"DEBUG: Audio-only format string: {format_str}")
         
+        print(f"DEBUG: Final format options: {format_options}")
         return format_options
     
     @staticmethod

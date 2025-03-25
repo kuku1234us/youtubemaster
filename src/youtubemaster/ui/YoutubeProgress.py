@@ -106,9 +106,11 @@ class YoutubeProgress(QWidget):
     
     Signals:
         cancel_requested: When the user clicks the cancel button
+        dismiss_requested: When the user dismisses an error
     """
     
     cancel_requested = pyqtSignal(str)
+    dismiss_requested = pyqtSignal(str)
     
     def __init__(self, url, title=None, parent=None):
         """Initialize the YouTube progress component."""
@@ -164,6 +166,25 @@ class YoutubeProgress(QWidget):
         self.cancel_button.setParent(self.thumbnail_container)
         self.cancel_button.move(135, 5)  # Adjust position for smaller thumbnail
         
+        # Create dismiss button for errors
+        self.dismiss_button = QPushButton("Dismiss")
+        self.dismiss_button.setFixedHeight(20)
+        self.dismiss_button.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(153, 0, 0, 0.8);
+                color: white;
+                border-radius: 3px;
+                font-weight: bold;
+                font-size: 8pt;
+                padding: 0px 5px;
+            }
+            QPushButton:hover {
+                background-color: rgba(204, 0, 0, 0.9);
+            }
+        """)
+        self.dismiss_button.clicked.connect(self.on_dismiss_clicked)
+        self.dismiss_button.hide()  # Hidden by default
+        
         # Create title progress bar
         self.progress_bar = TitleProgressBar()
         self.progress_bar.setFixedWidth(160)  # Match thumbnail width
@@ -190,6 +211,7 @@ class YoutubeProgress(QWidget):
         # Add widgets to layout
         self.layout.addWidget(self.thumbnail_container)
         self.layout.addWidget(self.progress_bar)
+        self.layout.addWidget(self.dismiss_button)
         
         # Initialize stats and status
         self.stats = ""
@@ -225,6 +247,35 @@ class YoutubeProgress(QWidget):
     
     def set_title(self, title):
         """Set the title text."""
+        if not title:
+            return
+        
+        # Only update the title if we have a valid title or if current title is a loading placeholder
+        current_title = self.progress_bar.title_label.text()
+        
+        print(f"DEBUG: set_title called with title=\"{title}\", current title=\"{current_title}\"")
+        
+        # If we have a real title (not a loading placeholder), always use it
+        if title and not (title.startswith("Loading") or title == "Downloading..."):
+            print(f"DEBUG: Setting real title: \"{title}\"")
+            self.progress_bar.set_title(title)
+            return
+        
+        # Don't replace a real title with a generic Loading placeholder
+        if (title.startswith("Loading") or title == "Downloading...") and current_title and not (
+                current_title.startswith("Loading") or current_title == "Downloading..."):
+            print(f"DEBUG: Not overriding existing real title \"{current_title}\" with placeholder \"{title}\"")
+            return
+        
+        # If we have a placeholder and current title is also a placeholder, update it
+        if (title.startswith("Loading") or title == "Downloading...") and (
+                not current_title or current_title.startswith("Loading") or current_title == "Downloading..."):
+            print(f"DEBUG: Setting placeholder title: \"{title}\"")
+            self.progress_bar.set_title(title)
+            return
+        
+        # Fallback case - shouldn't normally reach here
+        print(f"DEBUG: Fallback case - setting title to \"{title}\"")
         self.progress_bar.set_title(title)
     
     def set_status(self, status):
@@ -234,27 +285,65 @@ class YoutubeProgress(QWidget):
         # Show appropriate overlay message based on status
         if status == "Starting":
             self.set_stats("Processing started...")
+            self.dismiss_button.hide()
         elif status == "Queued":
             self.set_stats("Waiting in queue...")
+            self.dismiss_button.hide()
         elif status == "Complete":
             self.set_stats("Download completed")
+            self.dismiss_button.hide()
         elif status == "Error":
             # Don't override error message if already set
             if not self.stats or not self.stats.startswith("Error"):
                 self.set_stats("Error occurred")
+            
+            # Show dismiss button for errors
+            self.dismiss_button.show()
     
     def set_stats(self, stats):
-        """Set the stats text."""
+        """Set the stats text and show the overlay."""
         self.stats = stats
-        if stats:
-            self.stats_overlay.setText(stats)
-            self.stats_overlay.show()
-        else:
-            self.stats_overlay.hide()
+        
+        # Set text and ensure it's visible
+        self.stats_overlay.setText(stats)
+        self.stats_overlay.show()
+    
+    def highlight_error(self):
+        """Apply special styling to highlight error state."""
+        # Add red border to thumbnail to visually indicate error
+        self.thumbnail_container.setStyleSheet("""
+            QFrame {
+                border: 2px solid #FF3333;
+                background-color: #2A2A2A;
+            }
+        """)
+        
+        # Change progress bar to error color
+        self.progress_bar.setStyleSheet("""
+            border: 1px solid #FF3333;
+            background-color: #3A1A1A;
+        """)
+        
+        # Make the error message more noticeable
+        self.stats_overlay.setStyleSheet("""
+            background-color: rgba(153, 0, 0, 0.85);
+            color: white;
+            padding: 3px;
+            border-radius: 2px;
+            font-size: 8pt;
+            font-weight: bold;
+        """)
+        
+        # Show dismiss button
+        self.dismiss_button.show()
     
     def on_cancel_clicked(self):
         """Handle cancel button click."""
         self.cancel_requested.emit(self.url)
+    
+    def on_dismiss_clicked(self):
+        """Handle dismiss button click."""
+        self.dismiss_requested.emit(self.url)
     
     def sizeHint(self):
         """Return the preferred size for the widget."""

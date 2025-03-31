@@ -131,9 +131,6 @@ class YoutubeModel:
     @staticmethod
     def get_video_metadata(url):
         """Get both title and thumbnail for a YouTube video."""
-        # Log the original URL
-        print(f"DEBUG: get_video_metadata called with URL: {url}")
-        
         # Clean the URL if it has a protocol prefix
         original_url = url
         if url and url.startswith('youtubemaster://'):
@@ -142,14 +139,10 @@ class YoutubeModel:
                 _, url = protocol_path.split('/', 1)
             else:
                 url = protocol_path
-            print(f"DEBUG: Cleaned protocol URL from '{original_url}' to '{url}'")
         
         video_id = YoutubeModel.extract_video_id(url)
         if not video_id:
-            print(f"DEBUG: Could not extract video ID from URL: {url}")
             return "Unknown Video", None
-        
-        print(f"DEBUG: Extracted video ID: {video_id}")
         
         # Try using API method if key is available
         api_key = get_env('YOUTUBE_API_KEY')
@@ -159,7 +152,6 @@ class YoutubeModel:
         if api_key:
             try:
                 api_url = f"https://www.googleapis.com/youtube/v3/videos?id={video_id}&key={api_key}&part=snippet"
-                print(f"DEBUG: Fetching metadata from YouTube API for video ID: {video_id}")
                 
                 # Add timeout to prevent blocking for too long
                 response = requests.get(api_url, timeout=15.0)
@@ -168,7 +160,6 @@ class YoutubeModel:
                 if 'items' in data and len(data['items']) > 0:
                     snippet = data['items'][0]['snippet']
                     title = snippet.get('title', None)
-                    print(f"DEBUG: Got title from YouTube API: '{title}'")
                     
                     # Get thumbnail URL
                     thumbnails = snippet.get('thumbnails', {})
@@ -180,8 +171,6 @@ class YoutubeModel:
                             thumbnail_url = thumbnails[size]['url']
                             break
                     
-                    print(f"DEBUG: Got thumbnail URL: {bool(thumbnail_url)}")
-                    
                     # Download the thumbnail
                     if thumbnail_url:
                         # Add timeout to prevent blocking for too long
@@ -189,13 +178,8 @@ class YoutubeModel:
                         if response.status_code == 200:
                             pixmap = QPixmap()
                             pixmap.loadFromData(response.content)
-                            print(f"DEBUG: Successfully loaded thumbnail for video ID: {video_id}")
-                else:
-                    print(f"DEBUG: No items returned from YouTube API for video ID: {video_id}")
             except Exception as e:
-                print(f"DEBUG: Error fetching data via YouTube API: {str(e)}")
-        else:
-            print("DEBUG: No YouTube API key found, using direct thumbnail URL")
+                print(f"Error fetching data via YouTube API: {str(e)}")
         
         # Fallback for title and thumbnail if needed
         if not title:
@@ -205,17 +189,11 @@ class YoutubeModel:
                 title = f"Loading YouTube video: {video_id}"
             else:
                 title = f"Loading YouTube video"
-            print(f"DEBUG: Using fallback title: '{title}'")
         
         if not pixmap:
             pixmap = YoutubeModel.get_thumbnail(url, 'medium')
-            if pixmap:
-                print(f"DEBUG: Using fallback thumbnail for video ID: {video_id}")
-            else:
-                print(f"DEBUG: Failed to get thumbnail for video ID: {video_id}")
         
-        print(f"DEBUG: Returning title '{title}' for URL: {original_url}")
-        return title, pixmap 
+        return title, pixmap
 
     @staticmethod
     def clean_url(url):

@@ -19,7 +19,7 @@ class DownloadThread(QThread):
     
     # Define signals
     progress_signal = pyqtSignal(str, float, str)  # url, progress percent, status text
-    complete_signal = pyqtSignal(str)  # url
+    complete_signal = pyqtSignal(str, str, str)  # url, output_dir, filename
     error_signal = pyqtSignal(str, str)  # url, error message
     log_signal = pyqtSignal(str)  # log message
     processing_signal = pyqtSignal(str, str)  # url, status message
@@ -32,6 +32,7 @@ class DownloadThread(QThread):
         self.output_dir = output_dir
         self.cancelled = False
         self.logger = Logger()
+        self.downloaded_filename = None  # Will store the filename of the downloaded file
     
     def run(self):
         """Run the download process."""
@@ -71,6 +72,10 @@ class DownloadThread(QThread):
                 
                 elif d['status'] == 'finished':
                     self.log_signal.emit(f"Finished downloading part of {self.url}")
+                    # Store the filename of the downloaded file
+                    if 'filename' in d:
+                        self.downloaded_filename = os.path.basename(d['filename'])
+                        self.log_signal.emit(f"File: {self.downloaded_filename}")
                 
                 # Check for error status
                 elif d['status'] == 'error':
@@ -225,6 +230,29 @@ class DownloadThread(QThread):
             files_after = set(os.listdir(self.output_dir))
             new_files = files_after - files_before
             
+            # If we didn't capture the filename during download, try to determine it from new files
+            if not self.downloaded_filename and len(new_files) == 1:
+                # If only one file was created, it must be our download
+                self.downloaded_filename = list(new_files)[0]
+                self.log_signal.emit(f"Identified download as: {self.downloaded_filename}")
+            elif not self.downloaded_filename and len(new_files) > 1:
+                # More complex - multiple files were created
+                # Look for the most likely media file types
+                media_extensions = ['.mp4', '.webm', '.mkv', '.mp3', '.m4a', '.opus']
+                media_files = [f for f in new_files if any(f.lower().endswith(ext) for ext in media_extensions)]
+                
+                if len(media_files) == 1:
+                    self.downloaded_filename = media_files[0]
+                    self.log_signal.emit(f"Identified media file as: {self.downloaded_filename}")
+                elif len(media_files) > 1:
+                    # Use the largest file as the main download
+                    largest_file = max(
+                        [(f, os.path.getsize(os.path.join(self.output_dir, f))) for f in media_files],
+                        key=lambda x: x[1]
+                    )[0]
+                    self.downloaded_filename = largest_file
+                    self.log_signal.emit(f"Selected largest media file as: {self.downloaded_filename}")
+            
             # Update modification time of the final files
             current_time = time.time()
             for filename in new_files:
@@ -236,8 +264,8 @@ class DownloadThread(QThread):
                     except Exception as e:
                         self.log_signal.emit(f"Failed to update timestamp: {str(e)}")
             
-            # Signal completion
-            self.complete_signal.emit(self.url)
+            # Signal completion with output directory and filename
+            self.complete_signal.emit(self.url, self.output_dir, self.downloaded_filename)
             
         except DownloadError as e:
             error_message = str(e)
@@ -265,7 +293,7 @@ class DownloadManager(QObject):
     queue_updated = pyqtSignal()
     download_started = pyqtSignal(str, str, QPixmap)  # url, title, thumbnail
     download_progress = pyqtSignal(str, float, str)  # url, progress percentage, status text
-    download_complete = pyqtSignal(str)  # url
+    download_complete = pyqtSignal(str, str, str)  # url, output_dir, filename
     download_error = pyqtSignal(str, str)  # url, error message
     log_message = pyqtSignal(str)  # log message
     
@@ -706,6 +734,18 @@ class DownloadManager(QObject):
             return self._metadata[url]['thumbnail']
         return None
     
+    def get_output_path(self, url):
+        """Get the output directory for a completed download."""
+        if url in self._metadata:
+            return self._metadata[url].get('output_dir')
+        return None
+    
+    def get_output_filename(self, url):
+        """Get the filename of a completed download."""
+        if url in self._metadata:
+            return self._metadata[url].get('filename')
+        return None
+    
     def _process_queue(self):
         """Process the download queue and start new downloads if possible."""
         # Create a copy of the queue to avoid holding the lock during signal emissions
@@ -999,44 +1039,56 @@ class DownloadManager(QObject):
             self._metadata[url]['stats'] = status_text
             self.download_progress.emit(url, progress, status_text)
     
-    def _on_complete(self, url):
+    def _on_complete(self, url, output_dir, filename):
         """Handle download completion."""
-        thread = None
-        emit_complete = False
+        # Important diagnostic information for thumbnail click functionality
+        print(f"Download complete - URL: {url}")
+        print(f"Output directory: {output_dir}")
+        print(f"Filename: {filename}")
+        
+        if not output_dir or not os.path.isdir(output_dir):
+            print(f"WARNING: Output directory is invalid or does not exist: {output_dir}")
+        
+        if filename:
+            # Check if the file actually exists
+            filepath = os.path.join(output_dir, filename) if output_dir else None
+            if filepath and os.path.exists(filepath):
+                print(f"Confirmed file exists at: {filepath}")
+            else:
+                print(f"WARNING: File does not exist at expected path: {filepath}")
         
         self._mutex.lock()
+        need_process_queue = False
+        
         try:
             # Remove from active downloads
             if url in self._active:
-                thread = self._active.pop(url)
+                thread_to_cancel = self._active.pop(url)
+                need_process_queue = True
+            
+            # Add to completed downloads
+            if url not in self._completed:
+                self._completed.append(url)
                 
-                # Add to completed downloads
-                if url not in self._completed:
-                    self._completed.append(url)
+            # Update metadata
+            if url in self._metadata:
+                self._metadata[url]['status'] = 'Complete'
+                self._metadata[url]['progress'] = 100
+                # Store the output directory and filename in metadata
+                self._metadata[url]['output_dir'] = output_dir
+                self._metadata[url]['filename'] = filename
+                print(f"Updated metadata with output_dir={output_dir}, filename={filename}")
                 
-                # Update metadata
-                if url in self._metadata:
-                    self._metadata[url]['status'] = 'Complete'
-                    self._metadata[url]['progress'] = 100
-                    emit_complete = True
-
-            # Process queue immediately while we hold the lock and know there's a free slot
-            process_queue_needed = len(self._active) < self._max_concurrent and self._queue
         finally:
             self._mutex.unlock()
+            
+        # Emit signals
+        self.download_complete.emit(url, output_dir, filename)
+        self.queue_updated.emit()
+        self.log_message.emit(f"Download completed: {url}")
         
-        # Do these operations without holding the lock
-        if emit_complete:
-            # Log and notify
-            self.log_message.emit(f"Download completed: {url}")
-            self.download_complete.emit(url)
-        
-        # Clean up thread after emitting signals
-        if thread:
-            thread.deleteLater()
-        
-        # Process queue to start new downloads immediately if needed
-        if process_queue_needed:
+        # Process queue if needed
+        if need_process_queue:
             self._process_queue()
     
     def _on_error(self, url, error_message):

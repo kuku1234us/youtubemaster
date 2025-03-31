@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QHBoxLayout, QSpinBox, QPushButton
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
+import os
 
 from youtubemaster.ui.FlowLayout import FlowLayout
 from youtubemaster.models.DownloadManager import DownloadManager
@@ -98,34 +99,25 @@ class DownloadQueue(QScrollArea):
     
     def update_queue(self):
         """Update the display of the download queue."""
-        print("DEBUG: DownloadQueue.update_queue called")  # Debug log
-        
         # Clear existing progress components that are no longer in the queue
         urls_in_queue = set(self.download_manager.get_all_urls())
         urls_to_remove = set(self.progress_components.keys()) - urls_in_queue
-        
-        print(f"DEBUG: URLs in queue: {len(urls_in_queue)}, URLs to remove: {len(urls_to_remove)}")  # Debug log
         
         for url in urls_to_remove:
             if url in self.progress_components:
                 component = self.progress_components.pop(url)
                 # Remove from layout and delete
-                print(f"DEBUG: Removing component for URL: {url}")  # Debug log
                 self.flow_layout.removeWidget(component)
                 component.deleteLater()
         
         # Add new items to the queue
         for url in urls_in_queue:
             if url not in self.progress_components:
-                print(f"DEBUG: Adding progress component for URL: {url}")  # Debug log
-                
                 # Get download status and metadata
                 status = self.download_manager.get_status(url)
                 progress = self.download_manager.get_progress(url)
                 title = self.download_manager.get_title(url) or "Loading..."
                 thumbnail = self.download_manager.get_thumbnail(url)
-                
-                print(f"DEBUG: Status: {status}, Title: {title}, Has thumbnail: {thumbnail is not None}")  # Debug log
                 
                 # Create progress component
                 progress_component = YoutubeProgress(url, title)
@@ -152,7 +144,6 @@ class DownloadQueue(QScrollArea):
                 )
                 
                 # Add to layout and dictionary
-                print(f"DEBUG: Adding component to layout for URL: {url}")  # Debug log
                 self.flow_layout.addWidget(progress_component)
                 self.progress_components[url] = progress_component
             else:
@@ -178,56 +169,38 @@ class DownloadQueue(QScrollArea):
                 # Set title last to ensure it's not overridden
                 if title and not title.startswith("Loading:"):
                     component.set_title(title)
-        
-        print("DEBUG: DownloadQueue.update_queue finished")  # Debug log
     
     def on_download_started(self, url, title, thumbnail):
         """Handle download started signal."""
-        print(f"DEBUG: on_download_started: url={url}, title=\"{title}\", has_thumbnail={thumbnail is not None}")
-        
         if url in self.progress_components:
             component = self.progress_components[url]
-            print(f"DEBUG: Found component for URL: {url}")
             
             # Get current title before any updates
             current_title = component.progress_bar.title_label.text()
-            print(f"DEBUG: Current title before updates: \"{current_title}\"")
             
             # First apply the thumbnail if available
             if thumbnail and not thumbnail.isNull():
-                print(f"DEBUG: Setting thumbnail for {url}")
                 component.set_thumbnail(thumbnail)
             
             # Set status (this will update the status overlay)
             status = self.download_manager.get_status(url) or "Starting"
-            print(f"DEBUG: Setting status for {url}: {status}")
             component.set_status(status)
             
             # Set progress
             progress = self.download_manager.get_progress(url) or 0
-            print(f"DEBUG: Setting progress for {url}: {progress}")
             component.set_progress(progress)
             
-            # *** DIRECT TITLE HANDLING ***
-            # Skip our complex logic and directly set the title when we have a real title
+            # Skip complex logic and directly set the title when we have a real title
             if title and not (title.startswith("Loading") or title == "Downloading..."):
-                print(f"DEBUG: DIRECT TITLE UPDATE \"{title}\"")
                 # Directly set title in the progress bar, bypassing all logic
                 component.progress_bar.set_title(title)
             # Only set placeholder title if we don't already have a real title
             elif current_title and not (current_title.startswith("Loading") or current_title == "Downloading..."):
-                print(f"DEBUG: Keeping existing real title \"{current_title}\"")
                 # Keep existing title
+                pass
             else:
                 # Use placeholder
-                print(f"DEBUG: Using placeholder title \"{title}\"")
                 component.progress_bar.set_title(title or "Downloading...")
-            
-            # Check final title after all updates
-            final_title = component.progress_bar.title_label.text()
-            print(f"DEBUG: Final title after updates: \"{final_title}\"")
-        else:
-            print(f"DEBUG: Component not found for URL: {url}")
     
     def on_download_progress(self, url, progress, status_text):
         """Handle download progress signal."""
@@ -237,17 +210,34 @@ class DownloadQueue(QScrollArea):
             if status_text:
                 component.set_stats(status_text)
     
-    def on_download_complete(self, url):
+    def on_download_complete(self, url, output_dir=None, filename=None):
         """Handle download completion signal."""
+        # Important transition message
+        print(f"Download complete - URL: {url}")
+        
         if url in self.progress_components:
             component = self.progress_components[url]
             component.set_progress(100)
             component.set_status("Complete")
             component.set_stats("Download completed")
+            
+            # Set the output path and filename for file explorer access
+            if output_dir:
+                component.set_output_path(output_dir, filename)
+                # Verify the file exists - keep this as a warning message
+                if filename:
+                    filepath = os.path.join(output_dir, filename)
+                    if not os.path.exists(filepath):
+                        print(f"WARNING: File does not exist at expected path: {filepath}")
+            else:
+                print(f"WARNING: No output directory provided for {url}")
+        else:
+            print(f"WARNING: No component found for URL: {url}")
     
     def on_download_error(self, url, error_message):
         """Handle download error signal."""
-        print(f"DEBUG: on_download_error called for URL: {url} with message: {error_message}")
+        # Keep error messages
+        print(f"Error for URL: {url} - {error_message}")
         
         if url in self.progress_components:
             component = self.progress_components[url]
@@ -266,35 +256,31 @@ class DownloadQueue(QScrollArea):
             
             # Apply a visual indicator for error state
             component.highlight_error()
-        else:
-            print(f"DEBUG: Error for URL {url} but component not found in progress_components")
         
         # Force an update of the UI
         self.update_queue()
     
     def on_cancel_clicked(self, url):
         """Handle cancel button click with explicit URL parameter."""
-        print(f"DEBUG: Cancel requested for URL: {url}")
         try:
             # Process the URL to ensure it's valid
             if url and isinstance(url, str):
                 self.download_manager.cancel_download(url)
             else:
-                print(f"DEBUG: Invalid URL for cancellation: {url}")
+                print(f"Error: Invalid URL for cancellation: {url}")
         except Exception as e:
-            print(f"DEBUG: Error cancelling download: {e}")
+            print(f"Error cancelling download: {e}")
     
     def on_dismiss_clicked(self, url):
         """Handle dismiss button click for error items."""
-        print(f"DEBUG: Dismiss requested for URL: {url}")
         try:
             # Process the URL to ensure it's valid
             if url and isinstance(url, str):
                 self.download_manager.dismiss_error(url)
             else:
-                print(f"DEBUG: Invalid URL for dismiss: {url}")
+                print(f"Error: Invalid URL for dismiss: {url}")
         except Exception as e:
-            print(f"DEBUG: Error dismissing download: {e}")
+            print(f"Error dismissing download: {e}")
     
     def clear_completed_downloads(self):
         """Clear all completed downloads from the queue."""

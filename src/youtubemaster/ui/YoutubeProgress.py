@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QProgressBar, QPushButton, QFrame, QSizePolicy
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
-from PyQt6.QtGui import QPixmap, QFont, QColor, QPalette
+from PyQt6.QtGui import QPixmap, QFont, QColor, QPalette, QCursor
 
 from youtubemaster.utils.config import config
 
@@ -75,9 +75,29 @@ class TitleProgressBar(QFrame):
     
     def set_title(self, title):
         """Set the title text."""
-        # Truncate title if too long
-        if len(title) > 50:
-            title = title[:47] + "..."
+        if not title:
+            return
+        
+        # Only update the title if we have a valid title or if current title is a loading placeholder
+        current_title = self.title_label.text()
+        
+        # If we have a real title (not a loading placeholder), always use it
+        if title and not (title.startswith("Loading") or title == "Downloading..."):
+            self.title_label.setText(title)
+            return
+        
+        # Don't replace a real title with a generic Loading placeholder
+        if (title.startswith("Loading") or title == "Downloading...") and current_title and not (
+                current_title.startswith("Loading") or current_title == "Downloading..."):
+            return
+        
+        # If we have a placeholder and current title is also a placeholder, update it
+        if (title.startswith("Loading") or title == "Downloading...") and (
+                not current_title or current_title.startswith("Loading") or current_title == "Downloading..."):
+            self.title_label.setText(title)
+            return
+        
+        # Fallback case - shouldn't normally reach here
         self.title_label.setText(title)
     
     def set_progress(self, value):
@@ -118,6 +138,8 @@ class YoutubeProgress(QWidget):
         
         # Store URL
         self.url = url
+        self.output_path = None
+        self.downloaded_filename = None
         
         # Set size policy
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
@@ -141,6 +163,7 @@ class YoutubeProgress(QWidget):
         self.thumbnail.setFixedSize(160, 90)
         self.thumbnail.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.thumbnail.setStyleSheet("background-color: #2A2A2A;")
+        self.thumbnail.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))  # Add cursor to indicate clickable
         self.thumbnail_container.layout().addWidget(self.thumbnail)
         
         # Create cancel button as overlay
@@ -253,29 +276,23 @@ class YoutubeProgress(QWidget):
         # Only update the title if we have a valid title or if current title is a loading placeholder
         current_title = self.progress_bar.title_label.text()
         
-        print(f"DEBUG: set_title called with title=\"{title}\", current title=\"{current_title}\"")
-        
         # If we have a real title (not a loading placeholder), always use it
         if title and not (title.startswith("Loading") or title == "Downloading..."):
-            print(f"DEBUG: Setting real title: \"{title}\"")
             self.progress_bar.set_title(title)
             return
         
         # Don't replace a real title with a generic Loading placeholder
         if (title.startswith("Loading") or title == "Downloading...") and current_title and not (
                 current_title.startswith("Loading") or current_title == "Downloading..."):
-            print(f"DEBUG: Not overriding existing real title \"{current_title}\" with placeholder \"{title}\"")
             return
         
         # If we have a placeholder and current title is also a placeholder, update it
         if (title.startswith("Loading") or title == "Downloading...") and (
                 not current_title or current_title.startswith("Loading") or current_title == "Downloading..."):
-            print(f"DEBUG: Setting placeholder title: \"{title}\"")
             self.progress_bar.set_title(title)
             return
         
         # Fallback case - shouldn't normally reach here
-        print(f"DEBUG: Fallback case - setting title to \"{title}\"")
         self.progress_bar.set_title(title)
     
     def set_status(self, status):
@@ -292,6 +309,8 @@ class YoutubeProgress(QWidget):
         elif status == "Complete":
             self.set_stats("Download completed")
             self.dismiss_button.hide()
+            # Make cursor a hand to indicate clickable when completed
+            self.thumbnail.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         elif status == "Error":
             # Don't override error message if already set
             if not self.stats or not self.stats.startswith("Error"):
@@ -299,6 +318,8 @@ class YoutubeProgress(QWidget):
             
             # Show dismiss button for errors
             self.dismiss_button.show()
+            # Reset cursor to default for error state
+            self.thumbnail.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
     
     def set_stats(self, stats):
         """Set the stats text and show the overlay."""
@@ -400,4 +421,56 @@ class YoutubeProgress(QWidget):
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation
             )
-            self.set_thumbnail(scaled_pixmap) 
+            self.set_thumbnail(scaled_pixmap)
+
+    def set_output_path(self, path, filename=None):
+        """Set the output path for the downloaded file."""
+        self.output_path = path
+        self.downloaded_filename = filename
+    
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release event to open explorer to downloaded file."""
+        # Only handle left button clicks
+        if event.button() == Qt.MouseButton.LeftButton:
+            # Check if click is within thumbnail bounds
+            if self.thumbnail.underMouse():
+                self.open_file_location()
+        super().mouseReleaseEvent(event)
+    
+    def open_file_location(self):
+        """Open Windows Explorer to the downloaded file if completed."""
+        if self.status == "Complete" and self.output_path:
+            try:
+                # Log the full path information for debugging
+                print(f"Opening file location - URL: {self.url}")
+                print(f"Output path: {self.output_path}")
+                print(f"Filename: {self.downloaded_filename}")
+                
+                if os.path.isdir(self.output_path):
+                    # If we have a specific filename, select it in Explorer
+                    if self.downloaded_filename and os.path.exists(os.path.join(self.output_path, self.downloaded_filename)):
+                        # Normalize the path to ensure all slashes are consistent
+                        filepath = os.path.normpath(os.path.join(self.output_path, self.downloaded_filename))
+                        print(f"Opening file with explorer: {filepath}")
+                        
+                        # Use explorer.exe with /select to highlight the file 
+                        # Always use double quotes around the filepath to handle spaces and special characters
+                        cmd = f'explorer.exe /select,"{filepath}"'
+                        
+                        # Use os.system - simpler and more reliable for Explorer
+                        os.system(cmd)
+                    else:
+                        # Just open the directory if we don't have a filename
+                        print(f"Opening directory: {self.output_path}")
+                        dir_path = os.path.normpath(self.output_path)
+                        os.startfile(dir_path)
+                    return True
+                else:
+                    print(f"Error: Output path is not a directory: {self.output_path}")
+            except Exception as e:
+                print(f"Error opening file location: {str(e)}")
+        elif self.status != "Complete":
+            print(f"Cannot open file location - download not complete. Status: {self.status}")
+        elif not self.output_path:
+            print(f"Cannot open file location - no output path set for: {self.url}")
+        return False 

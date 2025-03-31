@@ -523,40 +523,27 @@ class MainWindow(QMainWindow):
     
     def on_add_clicked(self):
         """Handle add button click."""
-        print("DEBUG: on_add_clicked called")  # Debug log
-        
         url = self.video_input.get_url()
         if not url:
             QMessageBox.warning(self, "Error", "Please enter a valid URL.")
             return
         
-        print(f"DEBUG: Got URL: {url}")  # Debug log
-        
         format_id = self.video_input.get_format_options()
-        print(f"DEBUG: Got format_options from VideoInput: {format_id}")  # Debug the format options
-        
         output_dir = self.output_dir_input.text()
         
         if not os.path.isdir(output_dir):
             QMessageBox.warning(self, "Error", "Please select a valid output directory.")
             return
         
-        print(f"DEBUG: About to add to download queue: {url}")  # Debug log
-        
         # Add to download queue
         added = self.download_manager.add_download(url, format_options=format_id, output_dir=output_dir)
         
-        print(f"DEBUG: Add result: {added}")  # Debug log
-        
         if added:
             # Clear URL field for next entry
-            print("DEBUG: Setting URL input to empty")  # Debug log
             self.video_input.set_url("")
             self.statusBar.showMessage(f"Added to download queue: {url}")
         else:
             self.statusBar.showMessage("URL already in queue")
-        
-        print("DEBUG: on_add_clicked finished")  # Debug log
     
     def update_progress(self, message):
         """Update the progress in the log (used for analyze thread)."""
@@ -663,8 +650,6 @@ class MainWindow(QMainWindow):
         # Set the URL in the input field (this will show the proper title in UI)
         self.video_input.set_url(url)
         
-        print(f"DEBUG: auto_add_download - setting format type: {format_type}")
-        
         # First set the appropriate format in the UI - this ensures buttons are in correct state
         if format_type == "audio":
             # Set format for audio only
@@ -675,7 +660,6 @@ class MainWindow(QMainWindow):
         
         # Get the format options AFTER setting the format in the UI
         format_options = self.video_input.get_format_options()
-        print(f"DEBUG: auto_add_download - got format options: {format_options}")
         
         output_dir = self.output_dir_input.text()
         

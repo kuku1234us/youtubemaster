@@ -1,6 +1,7 @@
 """
 yt-dlp model Encapsulates logic that deals with yt-dlp
 """
+import sys
 
 class YtDlpModel:
     """
@@ -10,7 +11,7 @@ class YtDlpModel:
     """
 
     @staticmethod
-    def generate_format_string(resolution=None, use_https=True, use_m4a=True, subtitle_lang=None):
+    def generate_format_string(resolution=None, use_https=True, use_m4a=True, subtitle_lang=None, use_cookies=False):
         """
         Generate the yt-dlp format string based on the provided parameters.
         
@@ -19,6 +20,7 @@ class YtDlpModel:
             use_https (bool): Whether to prefer HTTPS protocol
             use_m4a (bool): Whether to prefer M4A/MP4 formats
             subtitle_lang (str, optional): Language code for subtitles (e.g., 'en', 'es', etc.) or None to disable
+            use_cookies (bool): Whether to use Firefox cookies to bypass YouTube bot verification
             
         Returns:
             dict: Dictionary with format options for yt-dlp
@@ -32,7 +34,33 @@ class YtDlpModel:
             }
         }
         
-        print(f"DEBUG: YtDlpModel.generate_format_string called with: resolution={resolution}, use_https={use_https}, use_m4a={use_m4a}, subtitle_lang={subtitle_lang}")
+        print(f"DEBUG: YtDlpModel.generate_format_string called with: resolution={resolution}, use_https={use_https}, use_m4a={use_m4a}, subtitle_lang={subtitle_lang}, use_cookies={use_cookies}")
+        
+        # Add browser cookies option if enabled
+        if use_cookies:
+            import os
+            
+            # Use the existing cookie file in the Docs directory
+            # Get the base directory of the application
+            if getattr(sys, 'frozen', False):
+                # Running as compiled executable
+                base_dir = os.path.dirname(sys.executable)
+            else:
+                # Running from script
+                import pathlib
+                base_dir = pathlib.Path(__file__).parent.parent.parent.parent.absolute()
+                
+            # Path to the cookie file
+            cookie_file = os.path.join(base_dir, 'Docs', 'yt_cookies.txt')
+            
+            if os.path.exists(cookie_file):
+                format_options['cookies'] = cookie_file
+                print(f"DEBUG: Using existing cookie file: {cookie_file}")
+            else:
+                print(f"DEBUG: Cookie file not found at: {cookie_file}")
+                # Fallback to standard method
+                format_options['cookies_from_browser'] = 'firefox'
+                print("DEBUG: Falling back to standard firefox cookie extraction")
         
         # Add more flexible subtitle format handling
         if subtitle_lang:
@@ -58,8 +86,8 @@ class YtDlpModel:
         
         if resolution:
             print(f"DEBUG: Generating video format with resolution: {resolution}")
-            # Video format
-            format_str = f"bestvideo[height<={resolution}]"
+            # Video format - exclude AV1 codec for iOS compatibility
+            format_str = f"bestvideo[height<={resolution}][vcodec!*=av01]"
             if use_https:
                 format_str += "[protocol=https]"
             if use_m4a:
@@ -72,8 +100,8 @@ class YtDlpModel:
             if use_m4a:
                 audio_str += "[ext=m4a]"
             
-            # Fall back options
-            fallback = f"best[height<={resolution}]"
+            # Fall back options - also exclude AV1 in fallback
+            fallback = f"best[height<={resolution}][vcodec!*=av01]"
             if use_https:
                 fallback += "[protocol=https]"
             if use_m4a and resolution:

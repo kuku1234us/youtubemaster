@@ -142,6 +142,34 @@ class DownloadThread(QThread):
                     # No specific client player requirements
                 }
             
+            # Add cookies options if present
+            if 'cookies' in self.format_options:
+                try:
+                    cookie_file = self.format_options['cookies']
+                    if os.path.exists(cookie_file):
+                        ydl_opts['cookies'] = cookie_file
+                        self.log_signal.emit(f"Using cookies from file: {cookie_file}")
+                    else:
+                        self.log_signal.emit(f"Warning: Cookie file not found: {cookie_file}")
+                except Exception as e:
+                    self.log_signal.emit(f"Error setting cookie file: {str(e)}")
+            
+            # Add cookies from browser if present (as fallback)
+            elif 'cookies_from_browser' in self.format_options:
+                try:
+                    browser = self.format_options['cookies_from_browser']
+                    ydl_opts['cookies_from_browser'] = browser
+                    self.log_signal.emit(f"Using cookies from {browser} browser")
+                    
+                    # Add debug info about closing the browser
+                    if 'firefox' in browser.lower():
+                        self.log_signal.emit("Note: If Firefox is running, try closing it and retrying if cookie extraction fails")
+                except Exception as e:
+                    error_msg = f"Error setting up browser cookies: {str(e)}"
+                    self.log_signal.emit(error_msg)
+                    # We don't want to abort the download if cookie setup fails
+                    # it will just try without cookies
+            
             # Extract info first to get title and thumbnail
             with YoutubeDL(ydl_opts) as ydl:
                 # Set a timeout handler to ensure we don't get stuck
@@ -404,9 +432,10 @@ class DownloadManager(QObject):
             metadata_ready = pyqtSignal(str, str, QPixmap)
             log_message = pyqtSignal(str)
             
-            def __init__(self, url, parent=None):
+            def __init__(self, url, format_options=None, parent=None):
                 super().__init__(parent)
                 self.url = url
+                self.format_options = format_options or {}
                 
             def run(self):
                 try:
@@ -483,8 +512,13 @@ class DownloadManager(QObject):
                     title = f"Loading: {site} video {video_id}" if video_id else f"Loading: {site} video"
                     self.metadata_ready.emit(self.url, title, QPixmap())
         
+        # Get the format options for the URL
+        format_options = None
+        if url in self._metadata and 'format_options' in self._metadata[url]:
+            format_options = self._metadata[url]['format_options']
+        
         # Create and configure the thread
-        thread = QuickMetadataThread(url, self)
+        thread = QuickMetadataThread(url, format_options, self)
         
         # Connect signals
         thread.metadata_ready.connect(self._on_quick_metadata_ready)
@@ -835,9 +869,10 @@ class DownloadManager(QObject):
             error = pyqtSignal(str, str)
             log = pyqtSignal(str)
             
-            def __init__(self, url, parent=None):
+            def __init__(self, url, format_options=None, parent=None):
                 super().__init__(parent)
                 self.url = url
+                self.format_options = format_options or {}
                 print(f"DEBUG: MetadataThread created for URL: {self.url}")
                 
             def run(self):
@@ -869,6 +904,34 @@ class DownloadManager(QObject):
                         'quiet': True,
                         'no_warnings': True,
                     }
+                    
+                    # Add cookies options if present
+                    if 'cookies' in self.format_options:
+                        try:
+                            cookie_file = self.format_options['cookies']
+                            if os.path.exists(cookie_file):
+                                ydl_opts['cookies'] = cookie_file
+                                self.log.emit(f"Using cookies from file: {cookie_file}")
+                            else:
+                                self.log.emit(f"Warning: Cookie file not found: {cookie_file}")
+                        except Exception as e:
+                            self.log.emit(f"Error setting cookie file: {str(e)}")
+                    
+                    # Add cookies from browser if present (as fallback)
+                    elif 'cookies_from_browser' in self.format_options:
+                        try:
+                            browser = self.format_options['cookies_from_browser']
+                            ydl_opts['cookies_from_browser'] = browser
+                            self.log.emit(f"Using cookies from {browser} browser")
+                            
+                            # Add debug info about closing the browser
+                            if 'firefox' in browser.lower():
+                                self.log.emit("Note: If Firefox is running, try closing it and retrying if cookie extraction fails")
+                        except Exception as e:
+                            error_msg = f"Error setting up browser cookies: {str(e)}"
+                            self.log.emit(error_msg)
+                            # We don't want to abort the download if cookie setup fails
+                            # it will just try without cookies
                     
                     print(f"DEBUG: About to extract info for URL: {self.url}")
                     
@@ -983,7 +1046,7 @@ class DownloadManager(QObject):
                     print(f"DEBUG: Emitted error signal for URL: {self.url}")
         
         # Create and start the QThread
-        metadata_thread = MetadataThread(url, self)
+        metadata_thread = MetadataThread(url, format_options, self)
         
         # Connect signals to slots in the main thread
         metadata_thread.finished.connect(

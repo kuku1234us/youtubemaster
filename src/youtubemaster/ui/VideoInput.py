@@ -130,6 +130,13 @@ class VideoInput(QWidget):
         self.btn_subtitles.clicked.connect(self.on_subtitles_toggled)
         format_layout.addWidget(self.btn_subtitles)
         
+        # Add cookie toggle button
+        self.btn_cookies = ToggleButton("Cookies")
+        self.btn_cookies.setChecked(config.get('cookies.enabled', False))  # Default is off
+        self.btn_cookies.setToolTip("Use Firefox cookies to bypass YouTube bot verification")
+        self.btn_cookies.clicked.connect(self.on_cookies_toggled)
+        format_layout.addWidget(self.btn_cookies)
+        
         # Add language selection combo box
         self.subtitle_lang_combo = QComboBox()
         self.subtitle_lang_combo.setFixedWidth(120)  # Increased from 70 to 120 pixels
@@ -258,6 +265,9 @@ class VideoInput(QWidget):
         # Get subtitles setting
         subtitle_enabled = self.btn_subtitles.isChecked()
         
+        # Get cookies setting
+        cookies_enabled = self.btn_cookies.isChecked()
+        
         # Get the selected language code
         subtitle_lang = None
         if subtitle_enabled:
@@ -275,14 +285,15 @@ class VideoInput(QWidget):
                 subtitle_lang = self.subtitle_lang_combo.currentText().strip()
         
         # Log the options being used
-        print(f"DEBUG: Generating format options with resolution={resolution}, https={self.btn_https.isChecked()}, m4a={self.btn_m4a.isChecked()}, subtitle_lang={subtitle_lang}")
+        print(f"DEBUG: Generating format options with resolution={resolution}, https={self.btn_https.isChecked()}, m4a={self.btn_m4a.isChecked()}, subtitle_lang={subtitle_lang}, cookies={cookies_enabled}")
         
         # Use YtDlpModel to generate the format options
         options = YtDlpModel.generate_format_string(
             resolution=resolution,
             use_https=self.btn_https.isChecked(),
             use_m4a=self.btn_m4a.isChecked(),
-            subtitle_lang=subtitle_lang
+            subtitle_lang=subtitle_lang,
+            use_cookies=cookies_enabled
         )
         
         # Log the generated format options
@@ -332,4 +343,9 @@ class VideoInput(QWidget):
     def on_subtitles_toggled(self):
         """Handle subtitles toggle and save to config."""
         config.set('subtitles.enabled', self.btn_subtitles.isChecked())
+        self.update_format()
+
+    def on_cookies_toggled(self):
+        """Handle cookies toggle and save to config."""
+        config.set('cookies.enabled', self.btn_cookies.isChecked())
         self.update_format()

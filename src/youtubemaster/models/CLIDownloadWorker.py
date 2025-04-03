@@ -266,9 +266,21 @@ class CLIDownloadWorker(QThread):
                 format_sort = ','.join(format_sort)
             cmd.extend(["--format-sort", format_sort])
         
-        # Add merge format if specified
+        # Add merge format if specified and not in audio-only mode
         if isinstance(self.format_options, dict) and 'merge_output_format' in self.format_options:
-            cmd.extend(["--merge-output-format", self.format_options['merge_output_format']])
+            # Check if this is an audio-only download (no merging needed)
+            is_audio_only = False
+            if 'format' in self.format_options:
+                format_str = self.format_options['format']
+                # Audio-only format typically starts with 'bestaudio' with no '+' for merging
+                if format_str.startswith('bestaudio') and '+' not in format_str:
+                    is_audio_only = True
+                    print(f"DEBUG: Detected audio-only format, skipping merge-output-format")
+            
+            # Only add merge-output-format for video downloads that require merging
+            if not is_audio_only:
+                cmd.extend(["--merge-output-format", self.format_options['merge_output_format']])
+                print(f"DEBUG: Using merge-output-format: {self.format_options['merge_output_format']}")
         
         # Add subtitle options if specified
         if isinstance(self.format_options, dict):

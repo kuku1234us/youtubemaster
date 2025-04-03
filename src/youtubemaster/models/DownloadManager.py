@@ -13,306 +13,7 @@ from PyQt6.QtCore import Qt
 
 from youtubemaster.utils.logger import Logger
 from youtubemaster.models.SiteModel import SiteModel
-
-class DownloadThread(QThread):
-    """Thread for processing a single download."""
-    
-    # Define signals
-    progress_signal = pyqtSignal(str, float, str)  # url, progress percent, status text
-    complete_signal = pyqtSignal(str, str, str)  # url, output_dir, filename
-    error_signal = pyqtSignal(str, str)  # url, error message
-    log_signal = pyqtSignal(str)  # log message
-    processing_signal = pyqtSignal(str, str)  # url, status message
-    
-    def __init__(self, url, format_options, output_dir, parent=None):
-        """Initialize the download thread."""
-        super().__init__(parent)
-        self.url = url
-        self.format_options = format_options
-        self.output_dir = output_dir
-        self.cancelled = False
-        self.logger = Logger()
-        self.downloaded_filename = None  # Will store the filename of the downloaded file
-    
-    def run(self):
-        """Run the download process."""
-        try:
-            from yt_dlp import YoutubeDL
-            from yt_dlp.utils import DownloadError
-            import os
-            import time
-            import re
-            
-            self.log_signal.emit(f"Starting download for: {self.url}")
-            
-            # Track files before download
-            files_before = set(os.listdir(self.output_dir))
-            
-            # Progress hook for yt-dlp
-            def progress_hook(d):
-                if self.cancelled:
-                    raise Exception("Download cancelled by user")
-                
-                if d['status'] == 'downloading':
-                    # Calculate progress percentage
-                    downloaded_bytes = d.get('downloaded_bytes', 0)
-                    total_bytes = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
-                    
-                    if total_bytes > 0:
-                        percentage = (downloaded_bytes / total_bytes) * 100
-                        speed = d.get('_speed_str', 'N/A')
-                        eta = d.get('_eta_str', 'N/A')
-                        status_text = f"Downloading: {percentage:.1f}% at {speed}, ETA: {eta}"
-                        self.progress_signal.emit(self.url, percentage, status_text)
-                    else:
-                        # Emit a progress signal even when total bytes is unknown
-                        status_text = f"Downloading: {downloaded_bytes / 1024:.1f} KB at {d.get('_speed_str', 'N/A')}"
-                        # Use a small percentage to show some progress
-                        self.progress_signal.emit(self.url, 1, status_text)
-                
-                elif d['status'] == 'finished':
-                    self.log_signal.emit(f"Finished downloading part of {self.url}")
-                    # Store the filename of the downloaded file
-                    if 'filename' in d:
-                        self.downloaded_filename = os.path.basename(d['filename'])
-                        self.log_signal.emit(f"File: {self.downloaded_filename}")
-                
-                # Check for error status
-                elif d['status'] == 'error':
-                    error_msg = d.get('error', 'An error occurred during download')
-                    self.error_signal.emit(self.url, f"Download error: {error_msg}")
-                    raise Exception(f"Download error: {error_msg}")
-            
-            # Signal that processing is starting
-            self.processing_signal.emit(self.url, "Processing started...")
-            
-            # Configure yt-dlp options with extended timeouts for slow connections
-            ydl_opts = {
-                'format': self.format_options.get('format'),
-                'outtmpl': os.path.join(self.output_dir, '%(title)s.%(ext)s'),
-                'progress_hooks': [progress_hook],
-                'quiet': False,
-                'no_warnings': False,
-                'no_color': True,
-                'no_mtime': True,  # Don't use the media timestamp
-                # Extended timeout settings for slow connections
-                'socket_timeout': 120,  # 2 minutes socket timeout (default is 20s)
-                'retries': 10,          # Retry up to 10 times (default is 3)
-                'fragment_retries': 10, # Retry fragments up to 10 times
-                'extractor_retries': 5, # Retry information extraction 5 times
-                'file_access_retries': 5, # Number of times to retry on file access error
-                'skip_unavailable_fragments': True, # Skip unavailable fragments
-                'abort_on_unavailable_fragment': False, # Don't abort on unavailable fragments
-                'ignoreerrors': False,  # Don't ignore errors, but retry multiple times
-                'external_downloader_args': ['--connect-timeout', '120'], # For external downloaders
-            }
-            
-            # Add format_sort if it exists in options
-            if 'format_sort' in self.format_options:
-                ydl_opts['format_sort'] = self.format_options['format_sort']
-                
-            # Add merge_output_format if it exists
-            if 'merge_output_format' in self.format_options:
-                ydl_opts['merge_output_format'] = self.format_options['merge_output_format']
-                
-            # Add subtitle options if present
-            if 'writesubtitles' in self.format_options:
-                ydl_opts['writesubtitles'] = self.format_options['writesubtitles']
-            
-            if 'writeautomaticsub' in self.format_options:
-                ydl_opts['writeautomaticsub'] = self.format_options['writeautomaticsub']
-                
-            if 'subtitleslangs' in self.format_options:
-                ydl_opts['subtitleslangs'] = self.format_options['subtitleslangs']
-                
-            if 'subtitlesformat' in self.format_options:
-                ydl_opts['subtitlesformat'] = self.format_options['subtitlesformat']
-                
-            if 'embedsubtitles' in self.format_options:
-                ydl_opts['embedsubtitles'] = self.format_options['embedsubtitles']
-                
-            if 'postprocessors' in self.format_options:
-                ydl_opts['postprocessors'] = self.format_options['postprocessors']
-            
-            # Add extractor-specific arguments for more reliable format extraction
-            # This replaces the need for PhantomJS
-            ydl_opts['extractor_args'] = self.format_options.get('extractor_args', {})
-            if 'youtube' not in ydl_opts['extractor_args']:
-                ydl_opts['extractor_args']['youtube'] = {
-                    # No specific client player requirements
-                }
-            
-            # Add cookies options if present
-            if 'cookies' in self.format_options:
-                try:
-                    cookie_file = self.format_options['cookies']
-                    if os.path.exists(cookie_file):
-                        ydl_opts['cookies'] = cookie_file
-                        self.log_signal.emit(f"Using cookies from file: {cookie_file}")
-                    else:
-                        self.log_signal.emit(f"Warning: Cookie file not found: {cookie_file}")
-                except Exception as e:
-                    self.log_signal.emit(f"Error setting cookie file: {str(e)}")
-            
-            # Add cookies from browser if present (as fallback)
-            elif 'cookies_from_browser' in self.format_options:
-                try:
-                    browser = self.format_options['cookies_from_browser']
-                    ydl_opts['cookies_from_browser'] = browser
-                    self.log_signal.emit(f"Using cookies from {browser} browser")
-                    
-                    # Add debug info about closing the browser
-                    if 'firefox' in browser.lower():
-                        self.log_signal.emit("Note: If Firefox is running, try closing it and retrying if cookie extraction fails")
-                except Exception as e:
-                    error_msg = f"Error setting up browser cookies: {str(e)}"
-                    self.log_signal.emit(error_msg)
-                    # We don't want to abort the download if cookie setup fails
-                    # it will just try without cookies
-            
-            # Extract info first to get title and thumbnail
-            with YoutubeDL(ydl_opts) as ydl:
-                # Set a timeout handler to ensure we don't get stuck
-                def timeout_handler():
-                    self.progress_signal.emit(self.url, 0, "Still processing, please wait...")
-                
-                info = None
-                max_retries = 3
-                retry_count = 0
-                
-                while retry_count < max_retries and not info:
-                    try:
-                        info = ydl.extract_info(self.url, download=False)
-                    except Exception as e:
-                        retry_count += 1
-                        if retry_count >= max_retries:
-                            raise
-                        self.progress_signal.emit(self.url, 0, f"Retrying metadata extraction ({retry_count}/{max_retries})...")
-                        time.sleep(2)  # Wait before retrying
-                
-                title = info.get('title', 'Unknown Title')
-                
-                # Get the smallest thumbnail from the available options
-                thumbnails = info.get('thumbnails', [])
-                thumbnail_url = None
-                if thumbnails:
-                    # Sort thumbnails by size (width*height) and get the smallest one
-                    sorted_thumbnails = sorted(
-                        [t for t in thumbnails if t.get('url') and t.get('width') and t.get('height')],
-                        key=lambda t: t.get('width', 0) * t.get('height', 0)
-                    )
-                    if sorted_thumbnails:
-                        thumbnail_url = sorted_thumbnails[0].get('url')
-                    else:
-                        # Fallback to default thumbnail
-                        thumbnail_url = info.get('thumbnail')
-                else:
-                    # Fallback to default thumbnail
-                    thumbnail_url = info.get('thumbnail')
-                
-                # Start the actual download
-                retry_count = 0
-                while retry_count < max_retries:
-                    try:
-                        ydl.download([self.url])
-                        break  # Success, exit the retry loop
-                    except DownloadError as e:
-                        error_message = str(e)
-                        self.log_signal.emit(f"Download error encountered: {error_message}")
-                        
-                        # Check if it's a timeout or connection error
-                        if "urlopen error timed out" in error_message or "urlopen error" in error_message:
-                            retry_count += 1
-                            if retry_count >= max_retries:
-                                raise
-                            self.progress_signal.emit(self.url, 0, f"Connection timed out, retrying ({retry_count}/{max_retries})...")
-                            time.sleep(5)  # Wait before retrying
-                        # Check for HTTP 403 Forbidden error
-                        elif "HTTP Error 403: Forbidden" in error_message:
-                            # This is likely a YouTube restriction or rate limiting
-                            error_msg = "Access forbidden (HTTP 403). YouTube may be limiting downloads or restricting this video."
-                            self.error_signal.emit(self.url, error_msg)
-                            return  # Exit thread gracefully
-                        # Check for regional restrictions
-                        elif "This video is not available in your country" in error_message:
-                            error_msg = "Video unavailable in your region due to geographical restrictions."
-                            self.error_signal.emit(self.url, error_msg)
-                            return  # Exit thread gracefully
-                        # Check for private videos
-                        elif "Private video" in error_message or "Sign in to confirm your age" in error_message:
-                            error_msg = "This video is private, age-restricted, or requires sign-in."
-                            self.error_signal.emit(self.url, error_msg)
-                            return  # Exit thread gracefully
-                        # Check for other HTTP errors
-                        elif re.search(r"HTTP Error \d+", error_message):
-                            match = re.search(r"HTTP Error (\d+)", error_message)
-                            code = match.group(1) if match else "unknown"
-                            error_msg = f"Server returned HTTP error {code}. Please try again later."
-                            self.error_signal.emit(self.url, error_msg)
-                            return  # Exit thread gracefully
-                        else:
-                            # Not a timeout error, re-raise
-                            raise
-            
-            # Find new files after download
-            files_after = set(os.listdir(self.output_dir))
-            new_files = files_after - files_before
-            
-            # If we didn't capture the filename during download, try to determine it from new files
-            if not self.downloaded_filename and len(new_files) == 1:
-                # If only one file was created, it must be our download
-                self.downloaded_filename = list(new_files)[0]
-                self.log_signal.emit(f"Identified download as: {self.downloaded_filename}")
-            elif not self.downloaded_filename and len(new_files) > 1:
-                # More complex - multiple files were created
-                # Look for the most likely media file types
-                media_extensions = ['.mp4', '.webm', '.mkv', '.mp3', '.m4a', '.opus']
-                media_files = [f for f in new_files if any(f.lower().endswith(ext) for ext in media_extensions)]
-                
-                if len(media_files) == 1:
-                    self.downloaded_filename = media_files[0]
-                    self.log_signal.emit(f"Identified media file as: {self.downloaded_filename}")
-                elif len(media_files) > 1:
-                    # Use the largest file as the main download
-                    largest_file = max(
-                        [(f, os.path.getsize(os.path.join(self.output_dir, f))) for f in media_files],
-                        key=lambda x: x[1]
-                    )[0]
-                    self.downloaded_filename = largest_file
-                    self.log_signal.emit(f"Selected largest media file as: {self.downloaded_filename}")
-            
-            # Update modification time of the final files
-            current_time = time.time()
-            for filename in new_files:
-                filepath = os.path.join(self.output_dir, filename)
-                if os.path.isfile(filepath):
-                    try:
-                        # Set both access time and modification time to current time
-                        os.utime(filepath, (current_time, current_time))
-                    except Exception as e:
-                        self.log_signal.emit(f"Failed to update timestamp: {str(e)}")
-            
-            # Signal completion with output directory and filename
-            self.complete_signal.emit(self.url, self.output_dir, self.downloaded_filename)
-            
-        except DownloadError as e:
-            error_message = str(e)
-            # Make error messages more user-friendly
-            if "YouTube said:" in error_message:
-                # Extract the actual YouTube error message
-                youtube_msg = re.search(r"YouTube said: (.*?)(\n|$)", error_message)
-                if youtube_msg:
-                    error_message = f"YouTube error: {youtube_msg.group(1)}"
-                
-            self.error_signal.emit(self.url, f"Download error: {error_message}")
-        except Exception as e:
-            error_message = str(e)
-            self.error_signal.emit(self.url, f"Error: {error_message}")
-    
-    def cancel(self):
-        """Cancel the download."""
-        self.cancelled = True
-
+from youtubemaster.models.PythonDownloadWorker import PythonDownloadWorker
 
 class DownloadManager(QObject):
     """Manager for handling multiple YouTube downloads."""
@@ -587,7 +288,7 @@ class DownloadManager(QObject):
     def cancel_download(self, url):
         """Cancel a download or remove a completed download."""
         # Prepare variables to store what we need outside the lock
-        thread_to_cancel = None
+        worker_to_cancel = None
         url_to_cancel = url
         need_queue_update = False
         need_process_queue = False
@@ -602,7 +303,7 @@ class DownloadManager(QObject):
             
             # Check if download is active
             if url in self._active:
-                thread_to_cancel = self._active.pop(url)
+                worker_to_cancel = self._active.pop(url)
                 need_process_queue = True
                 need_queue_update = True
                 
@@ -660,22 +361,22 @@ class DownloadManager(QObject):
         
         # Now perform operations that may take time or emit signals
         # without holding the lock
-        if thread_to_cancel is not None:
+        if worker_to_cancel is not None:
             # Signal cancellation
-            thread_to_cancel.cancel()
+            worker_to_cancel.cancel()
             
-            # Wait for thread to finish, but with timeout to avoid UI freeze
+            # Wait for worker to finish, but with timeout to avoid UI freeze
             # Increased from 1 second to 3 seconds for more graceful shutdown
-            if not thread_to_cancel.wait(3000):  # 3 second timeout
-                # Thread didn't finish in time, just force termination
-                thread_to_cancel.terminate()
-                thread_to_cancel.wait()
+            if not worker_to_cancel.wait(3000):  # 3 second timeout
+                # Worker didn't finish in time, just force termination
+                worker_to_cancel.terminate()
+                worker_to_cancel.wait()
             
             # Perform cleanup of temporary files if we had to force termination
             if output_dir and video_title:
                 self._cleanup_temp_files(output_dir, video_title)
         
-            print(f"DEBUG: Thread cancelled: {url_to_cancel}")
+            print(f"DEBUG: Worker cancelled: {url_to_cancel}")
         
         # Emit signals outside the lock
         if not metadata_removed:
@@ -826,26 +527,26 @@ class DownloadManager(QObject):
         
         # Now process without holding the lock
         for url, format_options, output_dir in urls_to_process:
-            # Create and start download thread
-            thread = DownloadThread(url, format_options, output_dir)
+            # Create and start download worker
+            worker = PythonDownloadWorker(url, format_options, output_dir)
             
             # Connect signals
-            thread.progress_signal.connect(self._on_progress)
-            thread.complete_signal.connect(self._on_complete)
-            thread.error_signal.connect(self._on_error)
-            thread.log_signal.connect(self.log_message)
-            thread.processing_signal.connect(
+            worker.progress_signal.connect(self._on_progress)
+            worker.complete_signal.connect(self._on_complete)
+            worker.error_signal.connect(self._on_error)
+            worker.log_signal.connect(self.log_message)
+            worker.processing_signal.connect(
                 lambda url, message: self._on_processing(url, message)
             )
             
-            # Start thread
-            thread.start()
+            # Start worker
+            worker.start()
             
-            # Update active downloads with thread
+            # Update active downloads with worker
             self._mutex.lock()
             try:
                 if url in self._active:
-                    self._active[url] = thread
+                    self._active[url] = worker
             finally:
                 self._mutex.unlock()
             
@@ -1126,7 +827,7 @@ class DownloadManager(QObject):
         try:
             # Remove from active downloads
             if url in self._active:
-                thread_to_cancel = self._active.pop(url)
+                worker = self._active.pop(url)
                 need_process_queue = True
             
             # Add to completed downloads
@@ -1158,7 +859,7 @@ class DownloadManager(QObject):
         """Handle download errors."""
         print(f"DEBUG: _on_error called for URL: {url} with message: {error_message}")
         
-        thread = None
+        worker = None
         need_process_queue = False
         
         self._mutex.lock()
@@ -1166,7 +867,7 @@ class DownloadManager(QObject):
         try:
             # Remove from active downloads
             if url in self._active:
-                thread = self._active.pop(url)
+                worker = self._active.pop(url)
                 need_process_queue = True
                 
                 # Move to error list instead of removing completely
@@ -1188,23 +889,23 @@ class DownloadManager(QObject):
         self.log_message.emit(f"Download error: {error_message}")
         self.download_error.emit(url, error_message)
         
-        # Clean up thread if needed
-        if thread:
-            # Ensure the thread is disconnected
+        # Clean up worker if needed
+        if worker:
+            # Ensure the worker is disconnected
             try:
-                thread.progress_signal.disconnect()
-                thread.complete_signal.disconnect()
-                thread.error_signal.disconnect()
-                thread.log_signal.disconnect()
-                thread.processing_signal.disconnect()
+                worker.progress_signal.disconnect()
+                worker.complete_signal.disconnect()
+                worker.error_signal.disconnect()
+                worker.log_signal.disconnect()
+                worker.processing_signal.disconnect()
             except Exception:
                 # Ignore disconnection errors
                 pass
             
-            thread.wait(1000)  # Wait up to 1 second for thread to finish
-            thread.deleteLater()
+            worker.wait(1000)  # Wait up to 1 second for worker to finish
+            worker.deleteLater()
             
-            print(f"DEBUG: Thread cleanup completed for URL: {url}")
+            print(f"DEBUG: Worker cleanup completed for URL: {url}")
         
         # Update UI
         self.queue_updated.emit()

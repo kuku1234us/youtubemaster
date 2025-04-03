@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QLineEdit, QTextEdit, QComboBox,
     QFileDialog, QProgressBar, QStatusBar, QMessageBox, QSizePolicy
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QMetaObject, Q_ARG
 from PyQt6.QtGui import QFont, QColor, QPalette, QIcon
 
 from youtubemaster.utils.config import config
@@ -145,6 +145,7 @@ class DownloadThread(QThread):
     progress_signal = pyqtSignal(str)
     percentage_signal = pyqtSignal(float)  # New signal for percentage updates
     finished_signal = pyqtSignal(bool, str)
+    alert_signal = pyqtSignal(str)  # New signal for the alert
     
     def __init__(self, url, format_id, output_dir):
         """Initialize the download thread."""
@@ -168,6 +169,12 @@ class DownloadThread(QThread):
     def run(self):
         """Run the download process."""
         try:
+            # Emit signal to show alert from main thread
+            self.alert_signal.emit(f"main_window DownloadThread invoked for URL: {self.url}")
+            
+            # Add a console log as well for additional verification
+            print("ALERT: main_window DownloadThread invoked for URL:", self.url)
+            
             from yt_dlp import YoutubeDL
             from yt_dlp.utils import DownloadError
             import time
@@ -684,4 +691,23 @@ class MainWindow(QMainWindow):
         else:
             self.statusBar.showMessage("URL already in queue")
             self.log_output.append(f"URL already in queue: {url}")
-            return False 
+            return False
+
+    # Add new method to show alert
+    def show_thread_alert(self, message):
+        """Show an alert message box."""
+        QMessageBox.information(self, "Thread Alert", message)
+        print(f"Alert shown: {message}")
+        
+    # This method should be called when creating a DownloadThread
+    def create_download_thread(self, url, format_id, output_dir):
+        """Create and configure a download thread."""
+        self.download_thread = DownloadThread(url, format_id, output_dir)
+        
+        # Connect signals
+        self.download_thread.progress_signal.connect(self.update_progress)
+        self.download_thread.percentage_signal.connect(self.update_progress_bar)
+        self.download_thread.finished_signal.connect(self.download_finished)
+        self.download_thread.alert_signal.connect(self.show_thread_alert)
+        
+        return self.download_thread 

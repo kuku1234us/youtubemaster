@@ -123,12 +123,11 @@ class VideoInput(QWidget):
         self.btn_m4a.setChecked(True)  # Default is on
         format_layout.addWidget(self.btn_m4a)
 
-        # Replace subtitle label and input with toggle button
+        # Create subtitle toggle button (not added to layout yet - will be added after other toggles)
         self.btn_subtitles = ToggleButton("Subtitles")
         self.btn_subtitles.setChecked(config.get('subtitles.enabled', True))  # Default is on
         self.btn_subtitles.setToolTip("Enable/disable subtitle download")
         self.btn_subtitles.clicked.connect(self.on_subtitles_toggled)
-        format_layout.addWidget(self.btn_subtitles)
         
         # Add cookie toggle button
         self.btn_cookies = ToggleButton("Cookies")
@@ -137,7 +136,17 @@ class VideoInput(QWidget):
         self.btn_cookies.clicked.connect(self.on_cookies_toggled)
         format_layout.addWidget(self.btn_cookies)
         
-        # Add language selection combo box
+        # Add CLI toggle button for yt-dlp
+        self.btn_use_cli = ToggleButton("Use CLI")
+        self.btn_use_cli.setChecked(config.get('ytdlp.use_cli', False))  # Default is off (use Python package)
+        self.btn_use_cli.setToolTip("Toggle between yt-dlp Python package and CLI")
+        self.btn_use_cli.clicked.connect(self.on_cli_toggled)
+        format_layout.addWidget(self.btn_use_cli)
+        
+        # Now add the subtitle toggle as the last toggle
+        format_layout.addWidget(self.btn_subtitles)
+        
+        # Add language selection combo box right after the subtitles toggle
         self.subtitle_lang_combo = QComboBox()
         self.subtitle_lang_combo.setFixedWidth(120)  # Increased from 70 to 120 pixels
         self.subtitle_lang_combo.setEditable(True)  # Allow custom language codes
@@ -268,6 +277,9 @@ class VideoInput(QWidget):
         # Get cookies setting
         cookies_enabled = self.btn_cookies.isChecked()
         
+        # Get CLI setting
+        use_cli = self.btn_use_cli.isChecked()
+        
         # Get the selected language code
         subtitle_lang = None
         if subtitle_enabled:
@@ -285,7 +297,7 @@ class VideoInput(QWidget):
                 subtitle_lang = self.subtitle_lang_combo.currentText().strip()
         
         # Log the options being used
-        print(f"DEBUG: Generating format options with resolution={resolution}, https={self.btn_https.isChecked()}, m4a={self.btn_m4a.isChecked()}, subtitle_lang={subtitle_lang}, cookies={cookies_enabled}")
+        print(f"DEBUG: Generating format options with resolution={resolution}, https={self.btn_https.isChecked()}, m4a={self.btn_m4a.isChecked()}, subtitle_lang={subtitle_lang}, cookies={cookies_enabled}, use_cli={use_cli}")
         
         # Use YtDlpModel to generate the format options
         options = YtDlpModel.generate_format_string(
@@ -295,6 +307,9 @@ class VideoInput(QWidget):
             subtitle_lang=subtitle_lang,
             use_cookies=cookies_enabled
         )
+        
+        # Add CLI option to the returned dictionary
+        options['use_cli'] = use_cli
         
         # Log the generated format options
         print(f"DEBUG: Generated format options: {options}")
@@ -348,4 +363,9 @@ class VideoInput(QWidget):
     def on_cookies_toggled(self):
         """Handle cookies toggle and save to config."""
         config.set('cookies.enabled', self.btn_cookies.isChecked())
+        self.update_format()
+
+    def on_cli_toggled(self):
+        """Handle CLI toggle and save to config."""
+        config.set('ytdlp.use_cli', self.btn_use_cli.isChecked())
         self.update_format()

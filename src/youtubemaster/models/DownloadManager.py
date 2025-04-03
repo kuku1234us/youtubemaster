@@ -14,6 +14,7 @@ from PyQt6.QtCore import Qt
 from youtubemaster.utils.logger import Logger
 from youtubemaster.models.SiteModel import SiteModel
 from youtubemaster.models.PythonDownloadWorker import PythonDownloadWorker
+from youtubemaster.models.CLIDownloadWorker import CLIDownloadWorker
 
 class DownloadManager(QObject):
     """Manager for handling multiple YouTube downloads."""
@@ -515,8 +516,8 @@ class DownloadManager(QObject):
                 # Store URLs that need UI updates
                 urls_to_update.append(url)
                 
-                # Add to active downloads (but don't start thread yet)
-                self._active[url] = None  # Will be replaced with thread
+                # Add to active downloads (but don't start worker yet)
+                self._active[url] = None  # Will be replaced with worker
         finally:
             self._mutex.unlock()
         
@@ -527,8 +528,18 @@ class DownloadManager(QObject):
         
         # Now process without holding the lock
         for url, format_options, output_dir in urls_to_process:
-            # Create and start download worker
-            worker = PythonDownloadWorker(url, format_options, output_dir)
+            # Check if we should use the CLI or Python package based on the format_options
+            use_cli = False
+            if isinstance(format_options, dict) and 'use_cli' in format_options:
+                use_cli = format_options['use_cli']
+            
+            # Create the appropriate worker class
+            if use_cli:
+                worker = CLIDownloadWorker(url, format_options, output_dir)
+                self.log_message.emit(f"Using CLI worker for: {url}")
+            else:
+                worker = PythonDownloadWorker(url, format_options, output_dir)
+                self.log_message.emit(f"Using Python worker for: {url}")
             
             # Connect signals
             worker.progress_signal.connect(self._on_progress)
